@@ -20,18 +20,18 @@ monkey_patch()
 import ssl
 import random
 
-import unittest2
-import eventlet
+import unittest
+
+from st2common.util import concurrency
 
 from bson.objectid import ObjectId
 from kombu.mixins import ConsumerMixin
-from kombu import Exchange
-from kombu import Queue
 from oslo_config import cfg
 
 from st2common.transport.publishers import PoolPublisher
 from st2common.transport.utils import _get_ssl_kwargs
 from st2common.transport import utils as transport_utils
+from st2common.transport.kombu import Exchange, Queue
 from st2common.models.db.liveaction import LiveActionDB
 
 __all__ = ["TransportUtilsTestCase"]
@@ -56,7 +56,7 @@ class QueueConsumer(ConsumerMixin):
         message.ack()
 
 
-class TransportUtilsTestCase(unittest2.TestCase):
+class TransportUtilsTestCase(unittest.TestCase):
     def tearDown(self):
         super(TransportUtilsTestCase, self).tearDown()
         cfg.CONF.set_override(name="compression", group="messaging", override=None)
@@ -69,7 +69,7 @@ class TransportUtilsTestCase(unittest2.TestCase):
         live_action_db.result = {"foo": "bar"}
 
         exchange = Exchange("st2.execution.test", type="topic")
-        queue_name = "test-" + str(random.randint(1, 10000))
+        queue_name = f"st2.test-{random.randint(1, 10000)}"
         queue = Queue(
             name=queue_name, exchange=exchange, routing_key="#", auto_delete=True
         )
@@ -78,16 +78,16 @@ class TransportUtilsTestCase(unittest2.TestCase):
         with transport_utils.get_connection() as connection:
             connection.connect()
             watcher = QueueConsumer(connection=connection, queue=queue)
-            watcher_thread = eventlet.greenthread.spawn(watcher.run)
+            watcher_thread = concurrency.spawn(watcher.run)
 
         # Give it some time to start up since we are publishing on a new queue
-        eventlet.sleep(0.5)
+        concurrency.sleep(0.5)
 
         self.assertEqual(len(watcher.received_messages), 0)
 
         # 1. Verify compression is off as a default
         publisher.publish(payload=live_action_db, exchange=exchange)
-        eventlet.sleep(0.2)
+        concurrency.sleep(0.2)
 
         self.assertEqual(len(watcher.received_messages), 1)
         self.assertEqual(
@@ -106,7 +106,7 @@ class TransportUtilsTestCase(unittest2.TestCase):
         cfg.CONF.set_override(name="compression", group="messaging", override="zstd")
         publisher.publish(payload=live_action_db, exchange=exchange)
 
-        eventlet.sleep(0.2)
+        concurrency.sleep(0.2)
 
         self.assertEqual(len(watcher.received_messages), 2)
         self.assertEqual(
@@ -126,7 +126,7 @@ class TransportUtilsTestCase(unittest2.TestCase):
         cfg.CONF.set_override(name="compression", group="messaging", override="zstd")
         publisher.publish(payload=live_action_db, exchange=exchange, compression="gzip")
 
-        eventlet.sleep(0.2)
+        concurrency.sleep(0.2)
 
         self.assertEqual(len(watcher.received_messages), 3)
         self.assertEqual(
@@ -142,7 +142,7 @@ class TransportUtilsTestCase(unittest2.TestCase):
         )
         self.assertEqual(watcher.received_messages[2][0].id, live_action_db.id)
 
-        watcher_thread.kill()
+        concurrency.kill(watcher_thread)
 
     def test_get_ssl_kwargs(self):
         # 1. No SSL kwargs provided

@@ -42,19 +42,13 @@ from st2common.services import workflows as wf_svc
 from st2common.transport import liveaction as lv_ac_xport
 from st2common.transport import workflow as wf_ex_xport
 from st2common.transport import publishers
+from st2tests.fixtures.packs.core.fixture import PACK_PATH as CORE_PACK_PATH
+from st2tests.fixtures.packs.orquesta_tests.fixture import PACK_PATH as TEST_PACK_PATH
 from st2tests.mocks import liveaction as mock_lv_ac_xport
 from st2tests.mocks import workflow as mock_wf_ex_xport
 
 
-TEST_PACK = "orquesta_tests"
-TEST_PACK_PATH = (
-    st2tests.fixturesloader.get_fixtures_packs_base_path() + "/" + TEST_PACK
-)
-
-PACKS = [
-    TEST_PACK_PATH,
-    st2tests.fixturesloader.get_fixtures_packs_base_path() + "/core",
-]
+PACKS = [TEST_PACK_PATH, CORE_PACK_PATH]
 
 
 @mock.patch.object(
@@ -118,6 +112,7 @@ class OrquestaRunnerCancelTest(st2tests.ExecutionDbTestCase):
         lv_ac_db, ac_ex_db = ac_svc.request_cancellation(lv_ac_db, requester)
         lv_ac_db = lv_db_access.LiveAction.get_by_id(str(lv_ac_db.id))
         self.assertEqual(lv_ac_db.status, ac_const.LIVEACTION_STATUS_CANCELING)
+        self.assertEqual(lv_ac_db.context["cancelled_by"], requester)
 
     def test_cancel_workflow_cascade_down_to_subworkflow(self):
         wf_meta = base.get_wf_fixture_meta_data(TEST_PACK_PATH, "subworkflow.yaml")
@@ -144,9 +139,7 @@ class OrquestaRunnerCancelTest(st2tests.ExecutionDbTestCase):
         )
         self.assertEqual(len(tk_ac_ex_dbs), 1)
 
-        tk_lv_ac_db = lv_db_access.LiveAction.get_by_id(
-            tk_ac_ex_dbs[0].liveaction["id"]
-        )
+        tk_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk_ac_ex_dbs[0].liveaction_id)
         self.assertEqual(tk_lv_ac_db.status, ac_const.LIVEACTION_STATUS_RUNNING)
 
         # Cancel the main workflow.
@@ -187,9 +180,7 @@ class OrquestaRunnerCancelTest(st2tests.ExecutionDbTestCase):
         )
         self.assertEqual(len(tk_ac_ex_dbs), 1)
 
-        tk_lv_ac_db = lv_db_access.LiveAction.get_by_id(
-            tk_ac_ex_dbs[0].liveaction["id"]
-        )
+        tk_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk_ac_ex_dbs[0].liveaction_id)
         self.assertEqual(tk_lv_ac_db.status, ac_const.LIVEACTION_STATUS_RUNNING)
 
         # Cancel the subworkflow.
@@ -235,9 +226,7 @@ class OrquestaRunnerCancelTest(st2tests.ExecutionDbTestCase):
         )
         self.assertEqual(len(tk1_ac_ex_dbs), 1)
 
-        tk1_lv_ac_db = lv_db_access.LiveAction.get_by_id(
-            tk1_ac_ex_dbs[0].liveaction["id"]
-        )
+        tk1_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk1_ac_ex_dbs[0].liveaction_id)
         self.assertEqual(tk1_lv_ac_db.status, ac_const.LIVEACTION_STATUS_RUNNING)
 
         tk2_ac_ex_dbs = ex_db_access.ActionExecution.query(
@@ -245,9 +234,7 @@ class OrquestaRunnerCancelTest(st2tests.ExecutionDbTestCase):
         )
         self.assertEqual(len(tk2_ac_ex_dbs), 1)
 
-        tk2_lv_ac_db = lv_db_access.LiveAction.get_by_id(
-            tk2_ac_ex_dbs[0].liveaction["id"]
-        )
+        tk2_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk2_ac_ex_dbs[0].liveaction_id)
         self.assertEqual(tk2_lv_ac_db.status, ac_const.LIVEACTION_STATUS_RUNNING)
 
         # Cancel the subworkflow which should cascade up to the root.

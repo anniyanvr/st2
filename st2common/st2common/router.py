@@ -22,7 +22,7 @@ import sys
 import copy
 import traceback
 
-from flex.core import validate
+from openapi_spec_validator import validate_spec
 import jsonschema
 from oslo_config import cfg
 import routes
@@ -238,7 +238,7 @@ class Router(object):
         self.spec = spec
         self.spec_resolver = jsonschema.RefResolver("", self.spec)
 
-        validate(fast_deepcopy_dict(self.spec))
+        validate_spec(fast_deepcopy_dict(self.spec))
 
         for filter in transforms:
             for (path, methods) in six.iteritems(spec["paths"]):
@@ -328,7 +328,12 @@ class Router(object):
 
         At the time of writing, the only property being utilized by middleware was `x-log-result`.
         """
-        LOG.debug("Received call with WebOb: %s", req)
+        LOG.debug("Received call with WebOb: %s %s", req.method, req.url)
+        # if a more detailed log is required:
+        # loggable_req = req.copy()
+        # loggable_req.headers.pop('Authorization', None)
+        # loggable_req.headers.pop('X-Request-Id', None)
+        # LOG.debug("Received call with WebOb: %s", loggable_req)
         endpoint, path_vars = self.match(req)
         LOG.debug("Parsed endpoint: %s", endpoint)
         LOG.debug("Parsed path_vars: %s", path_vars)
@@ -350,11 +355,15 @@ class Router(object):
                     definition = security_definitions[declaration]
 
                     if definition["type"] == "apiKey":
-                        if definition["in"] == "header":
+                        # x-in overrides in to allow cookie-based apiKey auth, which is not
+                        # valid Swagger 2.0 (in: cookie was added in OpenAPI 3.0) but is
+                        # supported by this router as an extension.
+                        effective_in = definition.get("x-in", definition["in"])
+                        if effective_in == "header":
                             token = req.headers.get(definition["name"])
-                        elif definition["in"] == "query":
+                        elif effective_in == "query":
                             token = req.GET.get(definition["name"])
-                        elif definition["in"] == "cookie":
+                        elif effective_in == "cookie":
                             token = req.cookies.get(definition["name"])
                         else:
                             token = None
@@ -383,11 +392,22 @@ class Router(object):
                                 max_age = (
                                     auth_resp.expiry - date_utils.get_datetime_utc_now()
                                 )
+                                # NOTE: unset and none don't mean the same thing - unset implies
+                                # not setting this attribute at all (backward compatibility) and
+                                # none implies setting this attribute value to none
+                                same_site = cfg.CONF.api.auth_cookie_same_site
+
+                                kwargs = {}
+                                if same_site != "unset":
+                                    kwargs["samesite"] = same_site
+
                                 cookie_token = cookies.make_cookie(
                                     definition["x-set-cookie"],
                                     token,
                                     max_age=max_age,
                                     httponly=True,
+                                    secure=cfg.CONF.api.auth_cookie_secure,
+                                    **kwargs,
                                 )
 
                             break
@@ -494,7 +514,7 @@ class Router(object):
                         "application/x-www-form-urlencoded",
                         "multipart/form-data",
                     ]:
-                        data = urlparse.parse_qs(req.body)
+                        data = urlparse.parse_qs(six.ensure_str(req.body))
                     else:
                         raise ValueError(
                             'Unsupported Content-Type: "%s"' % (content_type)
@@ -688,7 +708,7 @@ class Router(object):
         response_spec = response_spec or default_response_spec
         response_spec = response_spec or {}
         validate_response = response_spec.get("schema", {}).get(
-            "validate_response", True
+            "x-validate-response", True
         )
 
         if (

@@ -32,10 +32,14 @@ from st2common.util.virtualenvs import setup_pack_virtualenv
 from st2tests import config
 from st2tests.base import CleanFilesTestCase
 from st2tests.base import CleanDbTestCase
+from st2tests.fixtures.packs.test_library_dependencies.fixture import (
+    PACK_NAME as TEST_LIBRARY_DEPENDENCIES,
+)
 from st2tests.fixturesloader import get_fixtures_base_path
 
 __all__ = ["PythonRunnerBehaviorTestCase"]
 
+FIXTURES_BASE_PATH = get_fixtures_base_path()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 WRAPPER_SCRIPT_PATH = os.path.join(
     BASE_DIR, "../../../python_runner/python_runner/python_action_wrapper.py"
@@ -72,28 +76,12 @@ class PythonRunnerBehaviorTestCase(CleanFilesTestCase, CleanDbTestCase):
         To test above, this uses 'get_library_path.py' action in 'test_library_dependencies' pack.
         This action returns file-path of imported module which is specified by 'module' parameter.
         """
-        pack_name = "test_library_dependencies"
+        pack_name = TEST_LIBRARY_DEPENDENCIES
 
         # Before calling action, this sets up virtualenv for test pack. This pack has
         # requirements.txt wihch only writes 'six' module.
         setup_pack_virtualenv(pack_name=pack_name)
         self.assertTrue(os.path.exists(os.path.join(self.virtualenvs_path, pack_name)))
-
-        # This test suite expects that loaded six module is located under the virtualenv library,
-        # because 'six' is written in the requirements.txt of 'test_library_dependencies' pack.
-        (_, output, _) = self._run_action(
-            pack_name, "get_library_path.py", {"module": "six"}
-        )
-        # FIXME: This test fails if system site-packages has six because
-        # it won't get installed in the virtualenv (w/ --system-site-packages)
-        # system site-packages is never from a virtualenv.
-        # Travis has python installed in /opt/python/3.6.7
-        # with a no-system-site-packages virtualenv at /home/travis/virtualenv/python3.6.7
-        # GitHub Actions python is in /opt/hostedtoolcache/Python/3.6.13/x64/
-        # But ther isn't a virtualenv, so when we pip installed `virtualenv`,
-        # (which depends on, and therefore installs `six`)
-        # we installed it in system-site-packages not an intermediate virtualenv
-        self.assertEqual(output["result"].find(self.virtualenvs_path), 0)
 
         # Conversely, this expects that 'mock' module file-path is not under sandbox library,
         # but the parent process's library path, because that is not under the pack's virtualenv.
@@ -123,7 +111,7 @@ class PythonRunnerBehaviorTestCase(CleanFilesTestCase, CleanDbTestCase):
             setattr(runner, key, value)
 
         runner.entry_point = os.path.join(
-            get_fixtures_base_path(), "packs/%s/actions/%s" % (pack, action)
+            FIXTURES_BASE_PATH, f"packs/{pack}/actions/{action}"
         )
         runner.pre_run()
         return runner.run(params)

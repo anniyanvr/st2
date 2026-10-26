@@ -17,6 +17,9 @@ from __future__ import absolute_import
 import mock
 import six
 
+# This import must be early for import-time side-effects.
+from st2tests.base import CleanDbTestCase
+
 from st2common.constants import action as action_constants
 from st2common.models.api.action import RunnerTypeAPI, ActionAPI, LiveActionAPI
 from st2common.models.api.trigger import TriggerTypeAPI, TriggerAPI, TriggerInstanceAPI
@@ -30,15 +33,12 @@ import st2common.services.executions as executions_util
 import st2common.util.action_db as action_utils
 import st2common.util.date as date_utils
 
-from st2tests.base import CleanDbTestCase
+from st2tests.fixtures.generic.fixture import PACK_NAME as FIXTURES_PACK
+from st2tests.fixtures.descendants.fixture import PACK_NAME as DESCENDANTS_PACK
 from st2tests.fixturesloader import FixturesLoader
 
-import st2tests.config as tests_config
 from six.moves import range
 
-tests_config.parse_args()
-
-FIXTURES_PACK = "generic"
 
 TEST_FIXTURES = {
     "liveactions": [
@@ -79,7 +79,7 @@ class ExecutionsUtilTestCase(CleanDbTestCase):
         executions_util.create_execution_object(liveaction)
         post_creation_timestamp = date_utils.get_datetime_utc_now()
         execution = self._get_action_execution(
-            liveaction__id=str(liveaction.id), raise_exception=True
+            liveaction_id=str(liveaction.id), raise_exception=True
         )
         self.assertDictEqual(execution.trigger, {})
         self.assertDictEqual(execution.trigger_type, {})
@@ -90,7 +90,7 @@ class ExecutionsUtilTestCase(CleanDbTestCase):
         runner = RunnerType.get_by_name(action.runner_type["name"])
         self.assertDictEqual(execution.runner, vars(RunnerTypeAPI.from_model(runner)))
         liveaction = LiveAction.get_by_id(str(liveaction.id))
-        self.assertEqual(execution.liveaction["id"], str(liveaction.id))
+        self.assertEqual(execution.liveaction_id, str(liveaction.id))
         self.assertEqual(len(execution.log), 1)
         self.assertEqual(execution.log[0]["status"], liveaction.status)
         self.assertGreater(execution.log[0]["timestamp"], pre_creation_timestamp)
@@ -120,7 +120,7 @@ class ExecutionsUtilTestCase(CleanDbTestCase):
         )
         executions_util.create_execution_object(liveaction)
         execution = self._get_action_execution(
-            liveaction__id=str(liveaction.id), raise_exception=True
+            liveaction_id=str(liveaction.id), raise_exception=True
         )
         self.assertDictEqual(execution.trigger, vars(TriggerAPI.from_model(trigger)))
         self.assertDictEqual(
@@ -136,13 +136,13 @@ class ExecutionsUtilTestCase(CleanDbTestCase):
         runner = RunnerType.get_by_name(action.runner_type["name"])
         self.assertDictEqual(execution.runner, vars(RunnerTypeAPI.from_model(runner)))
         liveaction = LiveAction.get_by_id(str(liveaction.id))
-        self.assertEqual(execution.liveaction["id"], str(liveaction.id))
+        self.assertEqual(execution.liveaction_id, str(liveaction.id))
 
     def test_execution_creation_with_web_url(self):
         liveaction = self.MODELS["liveactions"]["liveaction1.yaml"]
         executions_util.create_execution_object(liveaction)
         execution = self._get_action_execution(
-            liveaction__id=str(liveaction.id), raise_exception=True
+            liveaction_id=str(liveaction.id), raise_exception=True
         )
         self.assertIsNotNone(execution.web_url)
         execution_id = str(execution.id)
@@ -164,7 +164,7 @@ class ExecutionsUtilTestCase(CleanDbTestCase):
         executions_util.update_execution(liveaction)
         post_update_timestamp = date_utils.get_datetime_utc_now()
         execution = self._get_action_execution(
-            liveaction__id=str(liveaction.id), raise_exception=True
+            liveaction_id=str(liveaction.id), raise_exception=True
         )
         self.assertEqual(len(execution.log), 2)
         self.assertEqual(execution.log[1]["status"], liveaction.status)
@@ -178,7 +178,7 @@ class ExecutionsUtilTestCase(CleanDbTestCase):
         liveaction.status = "running"
         executions_util.update_execution(liveaction)
         execution = self._get_action_execution(
-            liveaction__id=str(liveaction.id), raise_exception=True
+            liveaction_id=str(liveaction.id), raise_exception=True
         )
         self.assertEqual(len(execution.log), 1)
         # Check status is not updated if it's already in completed state.
@@ -214,7 +214,7 @@ class ExecutionsUtilTestCase(CleanDbTestCase):
             liveaction_db.status,
         )
 
-        self.assertRaisesRegexp(
+        self.assertRaisesRegex(
             ValueError,
             expected_msg,
             executions_util.abandon_execution_if_incomplete,
@@ -228,8 +228,6 @@ class ExecutionsUtilTestCase(CleanDbTestCase):
 
 
 # descendants test section
-
-DESCENDANTS_PACK = "descendants"
 
 DESCENDANTS_FIXTURES = {
     "executions": [

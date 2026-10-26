@@ -18,10 +18,8 @@ import copy
 
 import mock
 
-# XXX: actionsensor import depends on config being setup.
-import st2tests.config as tests_config
-
-tests_config.parse_args()
+# This import must be early for import-time side-effects.
+from st2tests import ExecutionDbTestCase
 
 import st2common.bootstrap.runnersregistrar as runners_registrar
 from st2common.constants import action as action_constants
@@ -46,7 +44,6 @@ from st2reactor.rules.enforcer import RuleEnforcer
 from local_runner.local_shell_command_runner import LocalShellCommandRunner
 
 from st2tests.fixtures.packs import executions as fixture
-from st2tests import ExecutionDbTestCase
 from st2tests.mocks.liveaction import MockLiveActionPublisher
 
 
@@ -99,7 +96,7 @@ class TestActionExecutionHistoryWorker(ExecutionDbTestCase):
         )
 
         execution = self._get_action_execution(
-            liveaction__id=str(liveaction.id), raise_exception=True
+            liveaction_id=str(liveaction.id), raise_exception=True
         )
 
         self.assertDictEqual(execution.trigger, {})
@@ -121,8 +118,7 @@ class TestActionExecutionHistoryWorker(ExecutionDbTestCase):
         self.assertEqual(execution.result, liveaction.result)
         self.assertEqual(execution.status, liveaction.status)
         self.assertEqual(execution.context, liveaction.context)
-        self.assertEqual(execution.liveaction["callback"], liveaction.callback)
-        self.assertEqual(execution.liveaction["action"], liveaction.action)
+        self.assertEqual(execution.liveaction_id, str(liveaction.id))
 
     def test_basic_execution_history_create_failed(self):
         MOCK_FAIL_EXECUTION_CREATE = True  # noqa
@@ -136,7 +132,7 @@ class TestActionExecutionHistoryWorker(ExecutionDbTestCase):
         )
 
         execution = self._get_action_execution(
-            liveaction__id=str(liveaction.id), raise_exception=True
+            liveaction_id=str(liveaction.id), raise_exception=True
         )
 
         action = action_utils.get_action_by_ref("executions.chain")
@@ -154,8 +150,7 @@ class TestActionExecutionHistoryWorker(ExecutionDbTestCase):
         self.assertEqual(execution.result, liveaction.result)
         self.assertEqual(execution.status, liveaction.status)
         self.assertEqual(execution.context, liveaction.context)
-        self.assertEqual(execution.liveaction["callback"], liveaction.callback)
-        self.assertEqual(execution.liveaction["action"], liveaction.action)
+        self.assertEqual(execution.liveaction_id, str(liveaction.id))
         self.assertGreater(len(execution.children), 0)
 
         for child in execution.children:
@@ -202,7 +197,7 @@ class TestActionExecutionHistoryWorker(ExecutionDbTestCase):
         )
 
         execution = self._get_action_execution(
-            liveaction__id=str(liveaction.id), raise_exception=True
+            liveaction_id=str(liveaction.id), raise_exception=True
         )
 
         self.assertDictEqual(execution.trigger, vars(TriggerAPI.from_model(trigger)))
@@ -229,8 +224,7 @@ class TestActionExecutionHistoryWorker(ExecutionDbTestCase):
         self.assertEqual(execution.result, liveaction.result)
         self.assertEqual(execution.status, liveaction.status)
         self.assertEqual(execution.context, liveaction.context)
-        self.assertEqual(execution.liveaction["callback"], liveaction.callback)
-        self.assertEqual(execution.liveaction["action"], liveaction.action)
+        self.assertEqual(execution.liveaction_id, str(liveaction.id))
 
     def _get_action_execution(self, **kwargs):
         return ActionExecution.get(**kwargs)

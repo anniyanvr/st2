@@ -24,6 +24,8 @@ except ImportError:
 from six.moves import filter
 from six.moves import http_client
 
+from oslo_config import cfg
+
 from st2common.constants import action as action_constants
 from st2common.constants.secrets import MASKED_ATTRIBUTE_VALUE
 from st2common.constants.keyvalue import FULL_USER_SCOPE
@@ -32,6 +34,7 @@ from st2common.models.api.keyvalue import KeyValuePairAPI
 from st2common.models.db.auth import UserDB
 from st2common.models.db.execution import ActionExecutionDB
 from st2common.models.db.execution import ActionExecutionOutputDB
+from st2common.models.db.liveaction import LiveActionDB
 from st2common.models.db.keyvalue import KeyValuePairDB
 from st2common.persistence.execution import ActionExecution
 from st2common.persistence.execution import ActionExecutionOutput
@@ -180,8 +183,12 @@ ACTION_WITH_OUTPUT_SCHEMA_WITH_SECRET_PARAMS = {
     "runner_type": "python-script",
     "parameters": {},
     "output_schema": {
-        "secret_param_1": {"type": "string", "required": True, "secret": True},
-        "secret_param_2": {"type": "string", "required": True, "secret": True},
+        "type": "object",
+        "properties": {
+            "secret_param_1": {"type": "string", "required": True, "secret": True},
+            "secret_param_2": {"type": "string", "required": True, "secret": True},
+        },
+        "additionalProperties": False,
     },
 }
 
@@ -194,8 +201,12 @@ ACTION_WITH_OUTPUT_SCHEMA_WITHOUT_SECRET_PARAMS = {
     "runner_type": "python-script",
     "parameters": {},
     "output_schema": {
-        "non_secret_param_1": {"type": "string", "required": True},
-        "non_secret_param_2": {"type": "string", "required": True},
+        "type": "object",
+        "properties": {
+            "non_secret_param_1": {"type": "string", "required": True},
+            "non_secret_param_2": {"type": "string", "required": True},
+        },
+        "additionalProperties": False,
     },
 }
 ACTION_DEFAULT_ENCRYPT_AND_BOOL = {
@@ -323,12 +334,6 @@ LIVE_ACTION_DEFAULT_ENCRYPT_AND_BOOL = {
 }
 LIVE_ACTION_DEFAULT_ENCRYPT_SECRET_PARAM = {
     "action": "starterpack.st2.dummy.default_encrypted_value_secret_param",
-}
-
-FIXTURES_PACK = "generic"
-TEST_FIXTURES = {
-    "runners": ["testrunner1.yaml"],
-    "actions": ["action1.yaml", "local.yaml"],
 }
 
 
@@ -684,7 +689,10 @@ class ActionExecutionControllerTestCase(
         delete_resp = self._do_delete(self._get_actionexecution_id(post_resp))
         self.assertEqual(delete_resp.status_int, 200)
         self.assertEqual(delete_resp.json["status"], "canceled")
-        expected_result = {"message": "Action canceled by user.", "user": "stanley"}
+        expected_result = {
+            "message": "Action canceled by user.",
+            "user": cfg.CONF.system_user.user,
+        }
         self.assertDictEqual(delete_resp.json["result"], expected_result)
 
     def test_post_delete_duplicate(self):
@@ -700,7 +708,10 @@ class ActionExecutionControllerTestCase(
             delete_resp = self._do_delete(self._get_actionexecution_id(post_resp))
             self.assertEqual(delete_resp.status_int, 200)
             self.assertEqual(delete_resp.json["status"], "canceled")
-            expected_result = {"message": "Action canceled by user.", "user": "stanley"}
+            expected_result = {
+                "message": "Action canceled by user.",
+                "user": cfg.CONF.system_user.user,
+            }
             self.assertDictEqual(delete_resp.json["result"], expected_result)
 
     def test_post_delete_trace(self):
@@ -871,7 +882,7 @@ class ActionExecutionControllerTestCase(
         self.assertEqual(post_resp.status_int, 201)
         execution_id = self._get_actionexecution_id(post_resp)
 
-        delay_time = 10 ** 10
+        delay_time = 10**10
         data = {"delay": delay_time}
         re_run_resp = self.app.post_json(
             "/v1/executions/%s/re_run" % (execution_id), data
@@ -974,7 +985,7 @@ class ActionExecutionControllerTestCase(
                 ),
             },
             {
-                "name": "stanley:secret",
+                "name": f"{cfg.CONF.system_user.user}:secret",
                 "secret": True,
                 "scope": FULL_USER_SCOPE,
                 "value": crypto_utils.symmetric_encrypt(
@@ -992,18 +1003,18 @@ class ActionExecutionControllerTestCase(
         ]
         kvps = [KeyValuePair.add_or_update(KeyValuePairDB(**x)) for x in register_items]
 
-        # By default, encrypt_user_param will be read from stanley's scope
+        # By default, encrypt_user_param will be read from system_user's scope
         # 1. parameters are not marked as secret
         resp = self._do_post(LIVE_ACTION_DEFAULT_ENCRYPT)
         self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.json["context"]["user"], "stanley")
+        self.assertEqual(resp.json["context"]["user"], cfg.CONF.system_user.user)
         self.assertEqual(resp.json["parameters"]["encrypted_param"], "foo")
         self.assertEqual(resp.json["parameters"]["encrypted_user_param"], "bar")
 
         # 2. parameters are marked as secret
         resp = self._do_post(LIVE_ACTION_DEFAULT_ENCRYPT_SECRET_PARAM)
         self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.json["context"]["user"], "stanley")
+        self.assertEqual(resp.json["context"]["user"], cfg.CONF.system_user.user)
         self.assertEqual(
             resp.json["parameters"]["encrypted_param"], MASKED_ATTRIBUTE_VALUE
         )
@@ -1075,7 +1086,7 @@ class ActionExecutionControllerTestCase(
         )
 
         expected_context = {
-            "user": "stanley",
+            "user": cfg.CONF.system_user.user,
             "pack": "starterpack",
             "re-run": {"ref": execution_id},
             "trace_context": {"id_": str(trace.id)},
@@ -1104,7 +1115,7 @@ class ActionExecutionControllerTestCase(
 
         expected_context = {
             "pack": "starterpack",
-            "user": "stanley",
+            "user": cfg.CONF.system_user.user,
             "re-run": {"ref": execution_id, "tasks": data["tasks"]},
             "trace_context": {"id_": str(trace.id)},
         }
@@ -1132,7 +1143,7 @@ class ActionExecutionControllerTestCase(
 
         expected_context = {
             "pack": "starterpack",
-            "user": "stanley",
+            "user": cfg.CONF.system_user.user,
             "re-run": {"ref": execution_id, "tasks": data["tasks"]},
             "trace_context": {"id_": str(trace.id)},
         }
@@ -1160,7 +1171,7 @@ class ActionExecutionControllerTestCase(
 
         expected_context = {
             "pack": "starterpack",
-            "user": "stanley",
+            "user": cfg.CONF.system_user.user,
             "re-run": {
                 "ref": execution_id,
                 "tasks": data["tasks"],
@@ -1998,9 +2009,19 @@ class ActionExecutionOutputControllerTestCase(
             status=status,
             action={"ref": "core.local"},
             runner={"name": "local-shell-cmd"},
-            liveaction={"ref": "foo"},
+            liveaction_id="54c6b6d60640fd4f5354e74a",
         )
         action_execution_db = ActionExecution.add_or_update(action_execution_db)
+        liveaction_db = LiveActionDB(
+            id="54c6b6d60640fd4f5354e74a",
+            start_timestamp=timestamp,
+            end_timestamp=timestamp,
+            status=status,
+            action="core.local",
+            runner_info={"name": "local-shell-cmd"},
+        )
+
+        LiveAction.add_or_update(liveaction_db)
 
         output_params = dict(
             execution_id=str(action_execution_db.id),
@@ -2079,9 +2100,19 @@ class ActionExecutionOutputControllerTestCase(
                 status=status,
                 action={"ref": "core.local"},
                 runner={"name": "local-shell-cmd"},
-                liveaction={"ref": "foo"},
+                liveaction_id="54c6b6d60640fd4f5354e74a",
             )
             action_execution_db = ActionExecution.add_or_update(action_execution_db)
+            liveaction_db = LiveActionDB(
+                id="54c6b6d60640fd4f5354e74a",
+                start_timestamp=timestamp,
+                end_timestamp=timestamp,
+                status=status,
+                action="core.local",
+                runner_info={"name": "local-shell-cmd"},
+            )
+
+            LiveAction.add_or_update(liveaction_db)
 
             for i in range(1, 6):
                 stdout_db = ActionExecutionOutputDB(

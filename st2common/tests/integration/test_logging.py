@@ -15,13 +15,20 @@
 
 from __future__ import absolute_import
 
+# Ignore CryptographyDeprecationWarning warnings which appear on Python 3.6
+# TODO: Remove after dropping python3.6
+import warnings
+
+warnings.filterwarnings("ignore", message="Python 3.6 is no longer supported")
+
 import os
 import sys
 import signal
-import unittest
+import pytest
 
-import eventlet
-from eventlet.green import subprocess
+from st2common.util import concurrency
+
+subprocess = concurrency.get_subprocess_module()
 
 from st2tests.base import IntegrationTestCase
 
@@ -43,12 +50,13 @@ class LogFormattingAndEncodingTestCase(IntegrationTestCase):
                 "LC_ALL": "en_US.UTF-8",
                 "ST2_LOG_PATCH_STDOUT": "false",
                 "PYTHONIOENCODING": "utf-8",
+                "EVENTLET_TESTS": "1",
             }
         )
         self.add_process(process=process)
 
         # Give it some time to start up and run for a while
-        eventlet.sleep(2)
+        concurrency.sleep(2)
         process.send_signal(signal.SIGKILL)
 
         stdout = process.stdout.read().decode("utf-8").strip()
@@ -69,7 +77,9 @@ class LogFormattingAndEncodingTestCase(IntegrationTestCase):
             "DEBUG [-] Test debug message with unicode 1 - \u597d\u597d\u597d", stdout
         )
 
-    @unittest.skipIf(sys.version_info >= (3, 8, 0), "Skipping test under Python >= 3.8")
+    @pytest.mark.skipif(
+        sys.version_info >= (3, 8, 0), reason="Skipping test under Python >= 3.8"
+    )
     def test_formatting_with_unicode_data_works_no_stdout_patching_non_valid_utf8_encoding(
         self,
     ):
@@ -83,12 +93,13 @@ class LogFormattingAndEncodingTestCase(IntegrationTestCase):
                 "LC_ALL": "invalid",
                 "ST2_LOG_PATCH_STDOUT": "false",
                 "PYTHONIOENCODING": "utf-8",
+                "EVENTLET_TESTS": "1",
             }
         )
         self.add_process(process=process)
 
         # Give it some time to start up and run for a while
-        eventlet.sleep(2)
+        concurrency.sleep(2)
         process.send_signal(signal.SIGKILL)
 
         stdout = process.stdout.read().decode("utf-8")
@@ -128,12 +139,13 @@ class LogFormattingAndEncodingTestCase(IntegrationTestCase):
                 "LC_ALL": "en_US.UTF-8",
                 "ST2_LOG_PATCH_STDOUT": "false",
                 "PYTHONIOENCODING": "ascii",
+                "EVENTLET_TESTS": "1",
             }
         )
         self.add_process(process=process)
 
         # Give it some time to start up and run for a while
-        eventlet.sleep(2)
+        concurrency.sleep(2)
         process.send_signal(signal.SIGKILL)
 
         stdout = process.stdout.read().decode("utf-8")
@@ -171,12 +183,13 @@ class LogFormattingAndEncodingTestCase(IntegrationTestCase):
                 "LC_ALL": "en_US.UTF-8",
                 "ST2_LOG_PATCH_STDOUT": "true",
                 "PYTHONIOENCODING": "utf-8",
+                "EVENTLET_TESTS": "1",
             }
         )
         self.add_process(process=process)
 
         # Give it some time to start up and run for a while
-        eventlet.sleep(2)
+        concurrency.sleep(2)
         process.send_signal(signal.SIGKILL)
 
         stdout = process.stdout.read().decode("utf-8")
@@ -206,12 +219,13 @@ class LogFormattingAndEncodingTestCase(IntegrationTestCase):
                 "LC_ALL": "invalid",
                 "ST2_LOG_PATCH_STDOUT": "true",
                 "PYTHONIOENCODING": "utf-8",
+                "EVENTLET_TESTS": "1",
             }
         )
         self.add_process(process=process)
 
         # Give it some time to start up and run for a while
-        eventlet.sleep(2)
+        concurrency.sleep(2)
         process.send_signal(signal.SIGKILL)
 
         stdout = process.stdout.read().decode("utf-8")
@@ -242,12 +256,13 @@ class LogFormattingAndEncodingTestCase(IntegrationTestCase):
                 "LC_ALL": "en_US.UTF-8",
                 "ST2_LOG_PATCH_STDOUT": "true",
                 "PYTHONIOENCODING": "ascii",
+                "EVENTLET_TESTS": "1",
             }
         )
         self.add_process(process=process)
 
         # Give it some time to start up and run for a while
-        eventlet.sleep(2)
+        concurrency.sleep(2)
         process.send_signal(signal.SIGKILL)
 
         stdout = process.stdout.read().decode("utf-8")

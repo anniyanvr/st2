@@ -14,8 +14,9 @@
 # limitations under the License.
 
 from __future__ import absolute_import
-import eventlet
 import mock
+
+from st2common.util import concurrency
 import os
 import tempfile
 
@@ -37,7 +38,11 @@ from st2common.util import action_db as action_utils
 from st2common.util import date as date_utils
 
 from st2tests import ExecutionDbTestCase
-from st2tests import fixturesloader
+from st2tests.fixtures.packs.action_chain_tests.fixture import (
+    PACK_NAME as TEST_PACK,
+    PACK_PATH as TEST_PACK_PATH,
+)
+from st2tests.fixtures.packs.core.fixture import PACK_PATH as CORE_PACK_PATH
 from st2tests.mocks.liveaction import MockLiveActionPublisherNonBlocking
 from six.moves import range
 
@@ -67,10 +72,7 @@ TEST_FIXTURES = {
     ],
 }
 
-TEST_PACK = "action_chain_tests"
-TEST_PACK_PATH = fixturesloader.get_fixtures_packs_base_path() + "/" + TEST_PACK
-
-PACKS = [TEST_PACK_PATH, fixturesloader.get_fixtures_packs_base_path() + "/core"]
+PACKS = [TEST_PACK_PATH, CORE_PACK_PATH]
 
 USERNAME = "stanley"
 
@@ -119,7 +121,7 @@ class ActionChainRunnerPauseResumeTest(ExecutionDbTestCase):
         for i in range(0, retries):
             liveaction = LiveAction.get_by_id(str(liveaction.id))
             if liveaction.status != status:
-                eventlet.sleep(interval)
+                concurrency.sleep(interval)
                 continue
             else:
                 break
@@ -131,7 +133,7 @@ class ActionChainRunnerPauseResumeTest(ExecutionDbTestCase):
         for i in range(0, retries):
             execution = ActionExecution.get_by_id(str(execution.id))
             if len(getattr(execution, "children", [])) <= 0:
-                eventlet.sleep(interval)
+                concurrency.sleep(interval)
                 continue
 
         return execution
@@ -430,7 +432,7 @@ class ActionChainRunnerPauseResumeTest(ExecutionDbTestCase):
 
         # Wait until the subworkflow is running.
         task1_exec = ActionExecution.get_by_id(execution.children[0])
-        task1_live = LiveAction.get_by_id(task1_exec.liveaction["id"])
+        task1_live = LiveAction.get_by_id(task1_exec.liveaction_id)
         task1_live = self._wait_for_status(
             task1_live, action_constants.LIVEACTION_STATUS_RUNNING
         )
@@ -451,7 +453,7 @@ class ActionChainRunnerPauseResumeTest(ExecutionDbTestCase):
 
         # Wait until the subworkflow is pausing.
         task1_exec = ActionExecution.get_by_id(execution.children[0])
-        task1_live = LiveAction.get_by_id(task1_exec.liveaction["id"])
+        task1_live = LiveAction.get_by_id(task1_exec.liveaction_id)
         task1_live = self._wait_for_status(
             task1_live, action_constants.LIVEACTION_STATUS_PAUSING
         )
@@ -476,7 +478,7 @@ class ActionChainRunnerPauseResumeTest(ExecutionDbTestCase):
 
         # Wait until the subworkflow is paused.
         task1_exec = ActionExecution.get_by_id(execution.children[0])
-        task1_live = LiveAction.get_by_id(task1_exec.liveaction["id"])
+        task1_live = LiveAction.get_by_id(task1_exec.liveaction_id)
         task1_live = self._wait_for_status(
             task1_live, action_constants.LIVEACTION_STATUS_PAUSED
         )
@@ -547,7 +549,7 @@ class ActionChainRunnerPauseResumeTest(ExecutionDbTestCase):
 
         # Wait until the subworkflow is running.
         task1_exec = ActionExecution.get_by_id(execution.children[0])
-        task1_live = LiveAction.get_by_id(task1_exec.liveaction["id"])
+        task1_live = LiveAction.get_by_id(task1_exec.liveaction_id)
         task1_live = self._wait_for_status(
             task1_live, action_constants.LIVEACTION_STATUS_RUNNING
         )
@@ -558,7 +560,7 @@ class ActionChainRunnerPauseResumeTest(ExecutionDbTestCase):
 
         # Wait until the subworkflow is pausing.
         task1_exec = ActionExecution.get_by_id(execution.children[0])
-        task1_live = LiveAction.get_by_id(task1_exec.liveaction["id"])
+        task1_live = LiveAction.get_by_id(task1_exec.liveaction_id)
         task1_live = self._wait_for_status(
             task1_live, action_constants.LIVEACTION_STATUS_PAUSING
         )
@@ -573,7 +575,7 @@ class ActionChainRunnerPauseResumeTest(ExecutionDbTestCase):
 
         # Wait until the subworkflow is paused.
         task1_exec = ActionExecution.get_by_id(execution.children[0])
-        task1_live = LiveAction.get_by_id(task1_exec.liveaction["id"])
+        task1_live = LiveAction.get_by_id(task1_exec.liveaction_id)
         task1_live = self._wait_for_status(
             task1_live, action_constants.LIVEACTION_STATUS_PAUSED
         )
@@ -610,7 +612,7 @@ class ActionChainRunnerPauseResumeTest(ExecutionDbTestCase):
 
         # Wait until the subworkflow is paused.
         task1_exec = ActionExecution.get_by_id(execution.children[0])
-        task1_live = LiveAction.get_by_id(task1_exec.liveaction["id"])
+        task1_live = LiveAction.get_by_id(task1_exec.liveaction_id)
         task1_live = self._wait_for_status(
             task1_live, action_constants.LIVEACTION_STATUS_SUCCEEDED
         )

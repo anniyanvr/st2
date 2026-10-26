@@ -22,6 +22,7 @@ from st2common.models.db.trigger import TriggerDB
 from st2common.models.system.common import ResourceReference
 from st2common.persistence.trigger import TriggerType
 from st2common.persistence.trigger import Trigger
+from st2common.util import concurrency
 from st2reactor.timer.base import St2Timer
 from st2tests.base import CleanDbTestCase
 
@@ -31,8 +32,9 @@ class St2TimerTestCase(CleanDbTestCase):
         timer = St2Timer()
         timer._scheduler = mock.Mock()
 
-        # Verify there are no TriggerType in the db when we start
-        self.assertItemsEqual(TriggerType.get_all(), [])
+        # Verify there are no TriggerType objects in the db when we start
+        # and cast Mongo QuerySet iterator cast to list for evaluation.
+        assert list(TriggerType.get_all()) == []
 
         timer.start()
 
@@ -55,8 +57,8 @@ class St2TimerTestCase(CleanDbTestCase):
         timer._trigger_watcher.run = mock.Mock()
 
         # Verify there are no Trigger and TriggerType in the db wh:w
-        self.assertItemsEqual(Trigger.get_all(), [])
-        self.assertItemsEqual(TriggerType.get_all(), [])
+        assert list(Trigger.get_all()) == []
+        assert list(TriggerType.get_all()) == []
 
         # Add a dummy timer Trigger object
         type_ = list(TIMER_TRIGGER_TYPES.keys())[0]
@@ -74,7 +76,7 @@ class St2TimerTestCase(CleanDbTestCase):
         self.assertEqual(len(Trigger.get_all()), 1)
 
         timer.start()
-        timer._trigger_watcher._load_thread.wait()
+        concurrency.wait(timer._trigger_watcher._load_thread)
 
         # Verify handlers are called
         timer._handle_create_trigger.assert_called_with(trigger_db)

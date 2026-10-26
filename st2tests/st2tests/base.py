@@ -16,6 +16,8 @@
 from __future__ import absolute_import
 from __future__ import print_function
 
+from unittest.result import TestResult
+
 # NOTE: We need to perform monkeypatch before importing ssl module otherwise tests will fail.
 # See https://github.com/StackStorm/st2/pull/4834 for details
 from st2common.util.monkey_patch import monkey_patch
@@ -34,12 +36,12 @@ import shutil
 import logging
 
 import six
-import eventlet
 import psutil
+from st2common.util import concurrency
 import mock
 from oslo_config import cfg
-from unittest2 import TestCase
-import unittest2
+from unittest import TestCase
+import unittest
 
 from orquesta import conducting
 from orquesta import events
@@ -137,7 +139,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TESTS_CONFIG_PATH = os.path.join(BASE_DIR, "../conf/st2.conf")
 
 
-class RunnerTestCase(unittest2.TestCase):
+class RunnerTestCase(unittest.TestCase):
     meta_loader = MetaLoader()
 
     def assertCommonSt2EnvVarsAvailableInEnv(self, env):
@@ -176,27 +178,25 @@ class BaseTestCase(TestCase):
         registrar.register_from_packs(base_dirs=get_packs_base_paths())
 
 
-class EventletTestCase(TestCase):
+class GreenThreadTestCase(TestCase):
     """
-    Base test class which performs eventlet monkey patching before the tests run
-    and un-patching after the tests have finished running.
+    Base test class which performs eventlet/gevent monkey patching before the tests run.
     """
 
     @classmethod
     def setUpClass(cls):
-        eventlet.monkey_patch(
-            os=True,
-            select=True,
-            socket=True,
-            thread=False if "--use-debugger" in sys.argv else True,
-            time=True,
-        )
+        monkey_patch()
 
     @classmethod
     def tearDownClass(cls):
-        eventlet.monkey_patch(
-            os=False, select=False, socket=False, thread=False, time=False
-        )
+        # NOTE: Intentionally does not call super().tearDownClass() - subclasses that mix this
+        # in with a DB test case (e.g. ExecutionDbTestCase) rely on this stopping the MRO chain
+        # here rather than triggering that base class' DB teardown.
+        pass
+
+
+class EventletTestCase(GreenThreadTestCase):
+    """Deprecated alias for GreenThreadTestCase, kept for external callers."""
 
 
 class BaseDbTestCase(BaseTestCase):
@@ -316,7 +316,16 @@ class DbTestCase(BaseDbTestCase):
     def tearDownClass(cls):
         drop_db = True
 
-        if cls.current_result.errors or cls.current_result.failures:
+        # TODO: pytst does not make results available to fixtures by default.
+        #       we might be able to add a hook+class fixture to help with this, but
+        #       that adds quite a bit of complexity. For now, pytest will always drop the db.
+        #       https://docs.pytest.org/en/stable/example/simple.html#making-test-result-information-available-in-fixtures
+        #       When someone does decide to tackle this, we will probably need to rename the db
+        #       for later inspection so subsequent tests still have a clean starting point as
+        #       pytest will not necessarily stop on failure like nosetest did.
+        if cls.current_result and (
+            cls.current_result.errors or cls.current_result.failures
+        ):
             # Don't drop DB on test failure
             drop_db = False
 
@@ -325,8 +334,11 @@ class DbTestCase(BaseDbTestCase):
 
     def run(self, result=None):
         # Remember result for use in tearDown and tearDownClass
-        self.current_result = result
-        self.__class__.current_result = result
+        # pytest sets result to _pytest.unittest.TestCaseFunction
+        # which does not have attributes: errors, failures
+        if isinstance(result, TestResult):
+            self.current_result = result
+            self.__class__.current_result = result
         super(DbTestCase, self).run(result=result)
 
 
@@ -346,7 +358,7 @@ class ExecutionDbTestCase(DbTestCase):
         assert isinstance(status, six.string_types), "%s is not of text type" % (status)
 
         for _ in range(0, retries):
-            eventlet.sleep(delay)
+            concurrency.sleep(delay)
             liveaction_db = LiveAction.get_by_id(str(liveaction_db.id))
             if liveaction_db.status == status:
                 break
@@ -364,7 +376,7 @@ class ExecutionDbTestCase(DbTestCase):
         )
 
         for _ in range(0, retries):
-            eventlet.sleep(delay)
+            concurrency.sleep(delay)
             liveaction_db = LiveAction.get_by_id(str(liveaction_db.id))
             if liveaction_db.status in statuses:
                 break
@@ -378,7 +390,7 @@ class ExecutionDbTestCase(DbTestCase):
         self, execution_db, status, retries=300, delay=0.1, raise_exc=True
     ):
         for _ in range(0, retries):
-            eventlet.sleep(delay)
+            concurrency.sleep(delay)
             execution_db = ex_db_access.ActionExecution.get_by_id(str(execution_db.id))
             if execution_db.status == status:
                 break
@@ -392,7 +404,7 @@ class ExecutionDbTestCase(DbTestCase):
         self, mocked, expected_count, retries=100, delay=0.1, raise_exc=True
     ):
         for _ in range(0, retries):
-            eventlet.sleep(delay)
+            concurrency.sleep(delay)
             if mocked.call_count == expected_count:
                 break
 
@@ -551,6 +563,11 @@ class IntegrationTestCase(TestCase):
 
     processes = {}
 
+    @classmethod
+    def setUpClass(cls):
+        # this prepares the vars for use in configuring the subprocesses via env var
+        tests_config.parse_args()
+
     def setUp(self):
         super(IntegrationTestCase, self).setUp()
         self._stop_running_processes()
@@ -585,7 +602,7 @@ class IntegrationTestCase(TestCase):
                 except:
                     stderr = None
 
-                print("Stopping process with pid %s" % (process.id))
+                print("Stopping process with pid %s" % (process.pid))
                 print('Process "%s"' % (process.pid))
                 print("Stdout: %s" % (stdout))
                 print("Stderr: %s" % (stderr))
@@ -801,9 +818,14 @@ def get_resources_path():
     return os.path.join(os.path.dirname(__file__), "resources")
 
 
-def blocking_eventlet_spawn(func, *args, **kwargs):
+def blocking_concurrency_spawn(func, *args, **kwargs):
     func(*args, **kwargs)
     return mock.Mock()
+
+
+def blocking_eventlet_spawn(func, *args, **kwargs):
+    """Deprecated alias for blocking_concurrency_spawn(), kept for external callers."""
+    return blocking_concurrency_spawn(func, *args, **kwargs)
 
 
 # Utility function for mocking read_and_store_{stdout,stderr} functions
@@ -812,7 +834,7 @@ def make_mock_stream_readline(mock_stream, mock_data, stop_counter=1, sleep_dela
 
     def mock_stream_readline():
         if sleep_delay:
-            eventlet.sleep(sleep_delay)
+            concurrency.sleep(sleep_delay)
 
         if mock_stream.counter >= stop_counter:
             mock_stream.closed = True

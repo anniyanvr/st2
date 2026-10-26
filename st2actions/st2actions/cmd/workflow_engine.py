@@ -33,17 +33,20 @@ from st2common import log as logging
 from st2common.service_setup import setup as common_setup
 from st2common.service_setup import teardown as common_teardown
 from st2common.service_setup import deregister_service
+from st2common.util import concurrency
 
 __all__ = ["main"]
 
 LOG = logging.getLogger(__name__)
-WORKFLOW_ENGINE = "workflow_engine"
 
 
-def setup_sigterm_handler():
+def setup_sigterm_handler(engine):
     def sigterm_handler(signum=None, frame=None):
         # This will cause SystemExit to be throw and allow for component cleanup.
-        sys.exit(0)
+        # engine.kill() blocks waiting for the greenlet to die, which gevent forbids
+        # doing directly inside a signal callback (BlockingSwitchOutError), so defer
+        # it to a freshly spawned greenlet instead.
+        concurrency.spawn(engine.kill)
 
     # Register a SIGTERM signal handler which calls sys.exit which causes SystemExit to
     # be thrown. We catch SystemExit and handle cleanup there.
@@ -53,7 +56,7 @@ def setup_sigterm_handler():
 def setup():
     capabilities = {"name": "workflowengine", "type": "passive"}
     common_setup(
-        service=WORKFLOW_ENGINE,
+        service=workflows.WORKFLOW_ENGINE,
         config=config,
         setup_db=True,
         register_mq_exchanges=True,
@@ -62,25 +65,24 @@ def setup():
         capabilities=capabilities,
     )
 
-    setup_sigterm_handler()
-
 
 def run_server():
     LOG.info("(PID=%s) Workflow engine started.", os.getpid())
 
     engine = workflows.get_engine()
-
+    setup_sigterm_handler(engine)
     try:
         engine.start(wait=True)
     except (KeyboardInterrupt, SystemExit):
         LOG.info("(PID=%s) Workflow engine stopped.", os.getpid())
-        deregister_service(service=WORKFLOW_ENGINE)
+        deregister_service(service=workflows.WORKFLOW_ENGINE)
         engine.shutdown()
+        return 0
     except:
         LOG.exception("(PID=%s) Workflow engine unexpectedly stopped.", os.getpid())
+        deregister_service(service=workflows.WORKFLOW_ENGINE)
+        engine.shutdown()
         return 1
-
-    return 0
 
 
 def teardown():

@@ -18,10 +18,9 @@ from __future__ import absolute_import
 import mock
 from mock import call
 
+# This import must be early for import-time side-effects.
 # Importing st2actions.scheduler relies on config being parsed :/
-import st2tests.config as tests_config
-
-tests_config.parse_args()
+from st2tests import ExecutionDbTestCase, GreenThreadTestCase
 
 import st2common
 from st2actions.scheduler import handler as scheduling_queue
@@ -36,8 +35,8 @@ from st2common.services import coordination
 from st2common.transport.liveaction import LiveActionPublisher
 from st2common.transport.publishers import CUDPublisher
 from st2common.bootstrap import runnersregistrar as runners_registrar
-from st2tests import ExecutionDbTestCase, EventletTestCase
 import st2tests.config as tests_config
+from st2tests.fixtures.generic.fixture import PACK_NAME as PACK
 from st2tests.fixturesloader import FixturesLoader
 from st2tests.mocks.execution import MockExecutionPublisher
 from st2tests.mocks.liveaction import MockLiveActionPublisherSchedulingQueueOnly
@@ -46,7 +45,6 @@ from six.moves import range
 
 __all__ = ["ConcurrencyByAttributePolicyTestCase"]
 
-PACK = "generic"
 TEST_FIXTURES = {
     "actions": ["action1.yaml", "action2.yaml"],
     "policies": ["policy_3.yaml", "policy_7.yaml"],
@@ -78,10 +76,10 @@ SCHEDULED_STATES = [
     mock.MagicMock(side_effect=MockExecutionPublisher.publish_update),
 )
 @mock.patch.object(CUDPublisher, "publish_create", mock.MagicMock(return_value=None))
-class ConcurrencyByAttributePolicyTestCase(EventletTestCase, ExecutionDbTestCase):
+class ConcurrencyByAttributePolicyTestCase(GreenThreadTestCase, ExecutionDbTestCase):
     @classmethod
     def setUpClass(cls):
-        EventletTestCase.setUpClass()
+        GreenThreadTestCase.setUpClass()
         ExecutionDbTestCase.setUpClass()
 
         # Override the coordinator to use the noop driver otherwise the tests will be blocked.
@@ -398,7 +396,17 @@ class ConcurrencyByAttributePolicyTestCase(EventletTestCase, ExecutionDbTestCase
 
         # Cancel execution.
         action_service.request_cancellation(scheduled[0], "stanley")
-        expected_num_pubs += 2  # Tally the canceling and canceled states.
+
+        # Verify the action was actually cancelled.
+        cancelled_action = LiveAction.get_by_id(str(scheduled[0].id))
+        self.assertEqual(
+            cancelled_action.status, action_constants.LIVEACTION_STATUS_CANCELED
+        )
+
+        # Since the action has no parent workflow context and is in RUNNING state,
+        # request_cancellation transitions directly to CANCELED (skipping CANCELING state).
+        # This results in only 1 state publication instead of 2.
+        expected_num_pubs += 1  # Tally the canceled state.
         self.assertEqual(
             expected_num_pubs, LiveActionPublisher.publish_state.call_count
         )

@@ -16,6 +16,11 @@
 
 from __future__ import absolute_import
 
+# pytest: make sure monkey_patching happens before importing mongoengine
+from st2common.util.monkey_patch import monkey_patch
+
+monkey_patch()
+
 import six
 import mock
 
@@ -33,10 +38,9 @@ from st2common.util import param as param_utils
 from st2common.util.config_loader import get_config
 
 from st2tests import DbTestCase
+from st2tests.fixtures.generic.fixture import PACK_NAME as FIXTURES_PACK
 from st2tests.fixturesloader import FixturesLoader
 
-
-FIXTURES_PACK = "generic"
 
 TEST_MODELS = {
     "actions": ["action_4_action_context_param.yaml", "action_system_default.yaml"],
@@ -53,6 +57,26 @@ class ParamsUtilsTest(DbTestCase):
     action_db = FIXTURES["actions"]["action_4_action_context_param.yaml"]
     action_system_default_db = FIXTURES["actions"]["action_system_default.yaml"]
     runnertype_db = FIXTURES["runners"]["testrunner1.yaml"]
+
+    def test_process_jinja_exception(self):
+
+        action_context = {"api_user": "noob"}
+        config = {}
+        G = param_utils._create_graph(action_context, config)
+        name = "a1"
+        value = {"test": "http://someurl?value={{a"}
+        param_utils._process(G, name, value)
+        self.assertEqual(G.nodes.get(name, {}).get("value"), value)
+
+    def test_process_jinja_template(self):
+
+        action_context = {"api_user": "noob"}
+        config = {}
+        G = param_utils._create_graph(action_context, config)
+        name = "a1"
+        value = "http://someurl?value={{a}}"
+        param_utils._process(G, name, value)
+        self.assertEqual(G.nodes.get(name, {}).get("template"), value)
 
     def test_get_finalized_params(self):
         params = {
@@ -219,7 +243,7 @@ class ParamsUtilsTest(DbTestCase):
         self.assertEqual(r_runner_params, {"r1": 1, "r2": 1})
         self.assertEqual(r_action_params, {"a1": True, "a2": True, "a3": "noob"})
 
-    def test_get_finalized_params_with_cast_overriden(self):
+    def test_get_finalized_params_with_cast_overridden(self):
         params = {
             "r1": "{{r2}}",
             "r2": 1,
@@ -350,15 +374,7 @@ class ParamsUtilsTest(DbTestCase):
             rendered=rendered, parameter_schemas=parameter_schemas
         )
 
-        if six.PY3:
-            expected = {"a1": ("unicode1 ٩(̾●̮̮̃̾•̃̾)۶ unicode2")}
-        else:
-            expected = {
-                "a1": (
-                    "unicode1 \xd9\xa9(\xcc\xbe\xe2\x97\x8f\xcc\xae\xcc\xae\xcc"
-                    "\x83\xcc\xbe\xe2\x80\xa2\xcc\x83\xcc\xbe)\xdb\xb6 unicode2"
-                )
-            }
+        expected = {"a1": ("unicode1 ٩(̾●̮̮̃̾•̃̾)۶ unicode2")}
 
         self.assertEqual(result, expected)
 
@@ -374,18 +390,43 @@ class ParamsUtilsTest(DbTestCase):
             runner_param_info, action_param_info, params, action_context
         )
 
-        if six.PY3:
-            expected_action_params = {"a1": ("unicode1 ٩(̾●̮̮̃̾•̃̾)۶ unicode2")}
-        else:
-            expected_action_params = {
-                "a1": (
-                    "unicode1 \xd9\xa9(\xcc\xbe\xe2\x97\x8f\xcc\xae\xcc\xae\xcc"
-                    "\x83\xcc\xbe\xe2\x80\xa2\xcc\x83\xcc\xbe)\xdb\xb6 unicode2"
-                )
-            }
+        expected_action_params = {"a1": ("unicode1 ٩(̾●̮̮̃̾•̃̾)۶ unicode2")}
 
         self.assertEqual(r_runner_params, {})
         self.assertEqual(r_action_params, expected_action_params)
+
+    def test_get_finalized_params_with_raw_string_parameter(self):
+        """
+        Tests that parameters with type 'raw_string' are not processed for Jinja expressions.
+        """
+        params = {
+            "a1": "value1",
+            "a2": "{{a1}}",
+            "a3": "{{a1}} and {{a4}}",
+            "a4": "{{a1}}",
+            "a5": "{{a1}}",
+        }
+        runner_param_info = {}
+        action_param_info = {
+            "a1": {"type": "string"},
+            "a2": {"type": "string"},
+            "a3": {"type": "raw_string"},
+            "a4": {"type": "raw_string"},
+            "a5": {"type": "string"},
+        }
+        action_context = {"api_user": "noob"}
+        r_runner_params, r_action_params = param_utils.get_finalized_params(
+            runner_param_info, action_param_info, params, action_context
+        )
+
+        # Regular string parameters should have their Jinja expressions evaluated
+        self.assertEqual(r_action_params["a1"], "value1")
+        self.assertEqual(r_action_params["a2"], "value1")
+        self.assertEqual(r_action_params["a5"], "value1")
+
+        # Parameters with type 'raw_string' should not be processed for Jinja expressions
+        self.assertEqual(r_action_params["a3"], "{{a1}} and {{a4}}")
+        self.assertEqual(r_action_params["a4"], "{{a1}}")
 
     def test_get_finalized_params_with_dict(self):
         # Note : In this test runner_params.r1 has a string value. However per runner_param_info the
@@ -567,7 +608,7 @@ class ParamsUtilsTest(DbTestCase):
         action_param_info = {"cmd": {}, "a2": {}}
 
         expected_msg = 'Failed to render parameter "cmd": .*'
-        self.assertRaisesRegexp(
+        self.assertRaisesRegex(
             ParamException,
             expected_msg,
             param_utils.get_finalized_params,
@@ -598,7 +639,7 @@ class ParamsUtilsTest(DbTestCase):
     def test_cast_param_referenced_action_doesnt_exist(self):
         # Make sure the function throws if the action doesnt exist
         expected_msg = 'Action with ref "foo.doesntexist" doesn\'t exist'
-        self.assertRaisesRegexp(
+        self.assertRaisesRegex(
             ValueError,
             expected_msg,
             action_param_utils.cast_params,
@@ -666,7 +707,7 @@ class ParamsUtilsTest(DbTestCase):
         return liveaction_db
 
     def test_get_value_from_datastore_through_render_live_params(self):
-        # Register datastore value to be refered by this test-case
+        # Register datastore value to be referred by this test-case
         register_kwargs = [
             {"name": "test_key", "value": "foo"},
             {"name": "user1:test_key", "value": "bar", "scope": FULL_USER_SCOPE},
@@ -757,7 +798,7 @@ class ParamsUtilsTest(DbTestCase):
         expected_msg = (
             "Cyclic dependency found in the following variables: cyclic, morecyclic"
         )
-        self.assertRaisesRegexp(
+        self.assertRaisesRegex(
             ParamException,
             expected_msg,
             param_utils.render_live_params,
@@ -781,7 +822,7 @@ class ParamsUtilsTest(DbTestCase):
         action_context = {"user": None}
 
         expected_msg = 'Dependency unsatisfied in variable "variable_not_defined"'
-        self.assertRaisesRegexp(
+        self.assertRaisesRegex(
             ParamException,
             expected_msg,
             param_utils.render_live_params,

@@ -14,22 +14,36 @@
 # limitations under the License.
 
 from __future__ import absolute_import
-from sre_parse import (
-    parse,
-    AT,
-    AT_BEGINNING,
-    AT_BEGINNING_STRING,
-    AT_END,
-    AT_END_STRING,
-)
+
+import sys
+
+if sys.version_info >= (3, 11):
+    from re._parser import (
+        parse,
+        AT,
+        AT_BEGINNING,
+        AT_BEGINNING_STRING,
+        AT_END,
+        AT_END_STRING,
+    )
+else:
+    from sre_parse import (
+        parse,
+        AT,
+        AT_BEGINNING,
+        AT_BEGINNING_STRING,
+        AT_END,
+        AT_END_STRING,
+    )
 from mock import Mock
-from unittest2 import TestCase
+from unittest import TestCase
 from st2common.exceptions.content import ParseException
 from st2common.models.utils.action_alias_utils import (
     ActionAliasFormatParser,
     search_regex_tokens,
     inject_immutable_parameters,
 )
+import st2tests.config as tests_config
 
 
 class TestActionAliasParser(TestCase):
@@ -215,7 +229,7 @@ class TestActionAliasParser(TestCase):
         expected_msg = (
             'Command "" doesn\'t match format string "skip {{d}} more skip {{e}}."'
         )
-        self.assertRaisesRegexp(
+        self.assertRaisesRegex(
             ParseException, expected_msg, parser.get_extracted_param_value
         )
 
@@ -251,7 +265,7 @@ class TestActionAliasParser(TestCase):
         expected_msg = (
             'Command "foo lulz ponies" doesn\'t match format string "foo bar ponies"'
         )
-        self.assertRaisesRegexp(
+        self.assertRaisesRegex(
             ParseException, expected_msg, parser.get_extracted_param_value
         )
 
@@ -357,6 +371,11 @@ class TestSearchRegexTokens(TestCase):
 
 
 class TestInjectImmutableParameters(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        tests_config.parse_args()
+
     def test_immutable_parameters_are_injected(self):
         action_alias_db = Mock()
         action_alias_db.immutable_parameters = {"env": "dev"}

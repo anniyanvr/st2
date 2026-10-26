@@ -27,6 +27,7 @@ from st2common.persistence.execution import ActionExecutionOutput
 from st2common.persistence.workflow import TaskExecution
 from st2common.persistence.workflow import WorkflowExecution
 from st2common.models.db.execution import ActionExecutionOutputDB
+from st2common.models.db.auth import UserDB
 from st2common.runners import utils as runners_utils
 from st2common.services import executions
 from st2common.services import trace as trace_service
@@ -60,6 +61,7 @@ def create_request(
 ):
     """
     Create an action execution.
+    :param liveaction: LiveActionDB
 
     :param action_db: Action model to operate one. If not provided, one is retrieved from the
                       database using values from "liveaction".
@@ -166,7 +168,6 @@ def create_request(
         runnertype_db=runnertype_db,
         publish=False,
     )
-
     if trace_db:
         trace_service.add_or_update_given_trace_db(
             trace_db=trace_db,
@@ -214,7 +215,12 @@ def request(liveaction):
 
 
 def update_status(
-    liveaction, new_status, result=None, publish=True, set_result_size=False
+    liveaction,
+    new_status,
+    result=None,
+    publish=True,
+    set_result_size=False,
+    context=None,
 ):
     if liveaction.status == new_status:
         return liveaction
@@ -226,6 +232,7 @@ def update_status(
         "status": new_status,
         "result": result,
         "publish": False,
+        "context": context,
     }
 
     if new_status in action_constants.LIVEACTION_COMPLETED_STATES:
@@ -298,15 +305,18 @@ def request_cancellation(liveaction, requester):
     # if the liveaction is operating under a workflow.
     if (
         "parent" in liveaction.context
-        or liveaction.status in action_constants.LIVEACTION_STATUS_RUNNING
+        or liveaction.status == action_constants.LIVEACTION_STATUS_RUNNING
     ):
         status = action_constants.LIVEACTION_STATUS_CANCELING
     else:
         status = action_constants.LIVEACTION_STATUS_CANCELED
 
-    liveaction = update_status(liveaction, status, result=result)
+    liveaction.context["cancelled_by"] = get_requester(requester)
+    liveaction = update_status(
+        liveaction, status, result=result, context=liveaction.context
+    )
 
-    execution = ActionExecution.get(liveaction__id=str(liveaction.id))
+    execution = ActionExecution.get(liveaction_id=str(liveaction.id))
 
     return (liveaction, execution)
 
@@ -337,7 +347,7 @@ def request_pause(liveaction, requester):
         liveaction.status == action_constants.LIVEACTION_STATUS_PAUSING
         or liveaction.status == action_constants.LIVEACTION_STATUS_PAUSED
     ):
-        execution = ActionExecution.get(liveaction__id=str(liveaction.id))
+        execution = ActionExecution.get(liveaction_id=str(liveaction.id))
         return (liveaction, execution)
 
     if liveaction.status != action_constants.LIVEACTION_STATUS_RUNNING:
@@ -346,9 +356,14 @@ def request_pause(liveaction, requester):
             % liveaction.id
         )
 
-    liveaction = update_status(liveaction, action_constants.LIVEACTION_STATUS_PAUSING)
+    liveaction.context["paused_by"] = get_requester(requester)
+    liveaction = update_status(
+        liveaction,
+        action_constants.LIVEACTION_STATUS_PAUSING,
+        context=liveaction.context,
+    )
 
-    execution = ActionExecution.get(liveaction__id=str(liveaction.id))
+    execution = ActionExecution.get(liveaction_id=str(liveaction.id))
 
     return (liveaction, execution)
 
@@ -381,7 +396,7 @@ def request_resume(liveaction, requester):
     ]
 
     if liveaction.status in running_states:
-        execution = ActionExecution.get(liveaction__id=str(liveaction.id))
+        execution = ActionExecution.get(liveaction_id=str(liveaction.id))
         return (liveaction, execution)
 
     if liveaction.status != action_constants.LIVEACTION_STATUS_PAUSED:
@@ -390,9 +405,14 @@ def request_resume(liveaction, requester):
             'not in "paused" state.' % (liveaction.id, liveaction.status)
         )
 
-    liveaction = update_status(liveaction, action_constants.LIVEACTION_STATUS_RESUMING)
+    liveaction.context["resumed_by"] = get_requester(requester)
+    liveaction = update_status(
+        liveaction,
+        action_constants.LIVEACTION_STATUS_RESUMING,
+        context=liveaction.context,
+    )
 
-    execution = ActionExecution.get(liveaction__id=str(liveaction.id))
+    execution = ActionExecution.get(liveaction_id=str(liveaction.id))
 
     return (liveaction, execution)
 
@@ -413,7 +433,7 @@ def get_parent_liveaction(liveaction_db):
         return None
 
     parent_execution_db = ActionExecution.get(id=parent["execution_id"])
-    parent_liveaction_db = LiveAction.get(id=parent_execution_db.liveaction["id"])
+    parent_liveaction_db = LiveAction.get(id=parent_execution_db.liveaction_id)
 
     return parent_liveaction_db
 
@@ -521,7 +541,7 @@ def store_execution_output_data_ex(
 
 
 def is_children_active(liveaction_id):
-    execution_db = ActionExecution.get(liveaction__id=str(liveaction_id))
+    execution_db = ActionExecution.get(liveaction_id=str(liveaction_id))
 
     if execution_db.runner["name"] not in action_constants.WORKFLOW_RUNNER_TYPES:
         return False
@@ -608,3 +628,9 @@ def is_action_execution_under_action_chain_context(liveaction):
     if it contains the chain key in its context dictionary.
     """
     return liveaction.context and "chain" in liveaction.context
+
+
+def get_requester(requester):
+    if isinstance(requester, UserDB):
+        return requester["name"]
+    return requester

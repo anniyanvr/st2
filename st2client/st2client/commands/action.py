@@ -695,7 +695,15 @@ class ActionRunCommandMixin(object):
                 attribute_transform_functions=self.attribute_transform_functions,
             )
 
-    def _get_execution_result(self, execution, action_exec_mgr, args, **kwargs):
+    def _get_execution_result(
+        self, execution, action_exec_mgr, args, force_retry_on_finish=False, **kwargs
+    ):
+        """
+        :param force_retry_on_finish: True to retry execution details on finish even if the
+                                      execution which is passed to this method has already finished.
+                                      This ensures we have latest state available for that
+                                      execution.
+        """
         pending_statuses = [
             LIVEACTION_STATUS_REQUESTED,
             LIVEACTION_STATUS_SCHEDULED,
@@ -719,8 +727,11 @@ class ActionRunCommandMixin(object):
             print("")
             return execution
 
+        poll_counter = 0
+
         if not args.action_async:
             while execution.status in pending_statuses:
+                poll_counter += 1
                 time.sleep(self.poll_interval)
                 if not args.json and not args.yaml:
                     sys.stdout.write(".")
@@ -728,6 +739,12 @@ class ActionRunCommandMixin(object):
                 execution = action_exec_mgr.get_by_id(execution.id, **kwargs)
 
             sys.stdout.write("\n")
+
+            if poll_counter == 0 and force_retry_on_finish:
+                # In some situations we want to retrieve execution details from API even if it has
+                # already finished before performing even a single poll. This ensures we have the
+                # latest data for a particular execution.
+                execution = action_exec_mgr.get_by_id(execution.id, **kwargs)
 
             if execution.status == LIVEACTION_STATUS_CANCELED:
                 return execution
@@ -928,6 +945,9 @@ class ActionRunCommandMixin(object):
 
         result = {}
 
+        if args.inherit_env:
+            result["env"] = self._get_inherited_env_vars()
+
         if not args.parameters:
             return result
 
@@ -990,9 +1010,6 @@ class ActionRunCommandMixin(object):
                 result["file_name"] = result["_file_name"]
 
             del result["_file_name"]
-
-        if args.inherit_env:
-            result["env"] = self._get_inherited_env_vars()
 
         return result
 
@@ -1189,14 +1206,19 @@ class ActionRunCommandMixin(object):
         By default, parameters are sorted using "position" parameter attribute.
         If this attribute is not available, parameter is sorted based on the
         name.
+
+        Returns a tuple (tier, value) so that parameters with a numeric position
+        sort before those without, and mixed int/str comparisons are avoided.
         """
         parameter = parameters.get(name, None)
 
         if not parameter:
-            return None
+            return (1, 0, name)
 
-        sort_value = parameter.get("position", name)
-        return sort_value
+        position = parameter.get("position", None)
+        if position is not None:
+            return (0, int(position), "")
+        return (1, 0, name)
 
     def _get_inherited_env_vars(self):
         env_vars = os.environ.copy()

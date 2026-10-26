@@ -15,13 +15,13 @@
 from __future__ import absolute_import
 
 import random
-import eventlet
 
-from kombu import Exchange
-from kombu import Queue
-from unittest2 import TestCase
+from unittest import TestCase
+
+from st2common.util import concurrency
 
 from st2common.transport.consumers import ActionsQueueConsumer
+from st2common.transport.kombu import Exchange, Queue
 from st2common.transport.publishers import PoolPublisher
 from st2common.transport import utils as transport_utils
 from st2common.models.db.liveaction import LiveActionDB
@@ -35,7 +35,7 @@ class ActionsQueueConsumerTestCase(TestCase):
 
     def test_stop_consumption_on_shutdown(self):
         exchange = Exchange("st2.execution.test", type="topic")
-        queue_name = "test-" + str(random.randint(1, 10000))
+        queue_name = f"st2.test-{random.randint(1, 10000)}"
         queue = Queue(
             name=queue_name, exchange=exchange, routing_key="#", auto_delete=True
         )
@@ -45,25 +45,25 @@ class ActionsQueueConsumerTestCase(TestCase):
             watcher = ActionsQueueConsumer(
                 connection=connection, queues=queue, handler=self
             )
-            watcher_thread = eventlet.greenthread.spawn(watcher.run)
+            watcher_thread = concurrency.spawn(watcher.run)
 
         # Give it some time to start up since we are publishing on a new queue
-        eventlet.sleep(0.5)
+        concurrency.sleep(0.5)
         body = LiveActionDB(
             status="scheduled", action="core.local", action_is_workflow=False
         )
         publisher.publish(payload=body, exchange=exchange)
-        eventlet.sleep(0.2)
+        concurrency.sleep(0.2)
         self.assertEqual(self.message_count, 1)
         body = LiveActionDB(
             status="scheduled", action="core.local", action_is_workflow=True
         )
         watcher.shutdown()
-        eventlet.sleep(1)
+        concurrency.sleep(1)
         publisher.publish(payload=body, exchange=exchange)
         # Second published message won't be consumed.
         self.assertEqual(self.message_count, 1)
-        watcher_thread.kill()
+        concurrency.kill(watcher_thread)
 
     def process(self, liveaction):
         self.message_count = self.message_count + 1

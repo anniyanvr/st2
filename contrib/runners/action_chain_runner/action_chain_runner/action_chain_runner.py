@@ -15,7 +15,6 @@
 
 from __future__ import absolute_import
 
-import eventlet
 import traceback
 import uuid
 import datetime
@@ -24,6 +23,7 @@ import six
 from jsonschema import exceptions as json_schema_exc
 from oslo_config import cfg
 
+from st2common.util import concurrency
 from st2common.runners.base import ActionRunner
 from st2common.runners.base import get_metadata as get_runner_metadata
 from st2common import log as logging
@@ -333,7 +333,7 @@ class ActionChainRunner(ActionRunner):
                 and child_exec.status in action_constants.LIVEACTION_CANCELABLE_STATES
             ):
                 action_service.request_cancellation(
-                    LiveAction.get(id=child_exec.liveaction["id"]),
+                    LiveAction.get(id=child_exec.liveaction_id),
                     self.context.get("user", None),
                 )
 
@@ -353,7 +353,7 @@ class ActionChainRunner(ActionRunner):
                 and child_exec.status == action_constants.LIVEACTION_STATUS_RUNNING
             ):
                 action_service.request_pause(
-                    LiveAction.get(id=child_exec.liveaction["id"]),
+                    LiveAction.get(id=child_exec.liveaction_id),
                     self.context.get("user", None),
                 )
 
@@ -879,7 +879,7 @@ class ActionChainRunner(ActionRunner):
                 action_constants.LIVEACTION_STATUS_PENDING,
             ]
         ):
-            eventlet.sleep(sleep_delay)
+            concurrency.sleep(sleep_delay)
             liveaction = action_db_util.get_liveaction_by_id(liveaction.id)
 
         return liveaction
@@ -901,7 +901,7 @@ class ActionChainRunner(ActionRunner):
             action_constants.LIVEACTION_COMPLETED_STATES
             + [action_constants.LIVEACTION_STATUS_PAUSED]
         ):
-            eventlet.sleep(sleep_delay)
+            concurrency.sleep(sleep_delay)
             liveaction = action_db_util.get_liveaction_by_id(liveaction.id)
 
         return liveaction
@@ -966,7 +966,7 @@ class ActionChainRunner(ActionRunner):
 
         execution_db = None
         if liveaction_db:
-            execution_db = ActionExecution.get(liveaction__id=str(liveaction_db.id))
+            execution_db = ActionExecution.get(liveaction_id=str(liveaction_db.id))
 
         result["id"] = action_node.name
         result["name"] = action_node.name

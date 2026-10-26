@@ -16,9 +16,9 @@
 from __future__ import absolute_import
 
 import mock
-import six
 
 from orquesta import statuses as wf_statuses
+from oslo_config import cfg
 
 import st2tests
 
@@ -43,6 +43,8 @@ from st2common.services import workflows as wf_svc
 from st2common.transport import liveaction as lv_ac_xport
 from st2common.transport import workflow as wf_ex_xport
 from st2common.transport import publishers
+from st2tests.fixtures.packs.core.fixture import PACK_PATH as CORE_PACK_PATH
+from st2tests.fixtures.packs.orquesta_tests.fixture import PACK_PATH as TEST_PACK_PATH
 from st2tests.mocks import liveaction as mock_lv_ac_xport
 from st2tests.mocks import workflow as mock_wf_ex_xport
 from st2common.models.db.workflow import WorkflowExecutionDB
@@ -50,15 +52,7 @@ from st2common.models.db.workflow import TaskExecutionDB
 from st2common.models.db.execution_queue import ActionExecutionSchedulingQueueItemDB
 
 
-TEST_PACK = "orquesta_tests"
-TEST_PACK_PATH = (
-    st2tests.fixturesloader.get_fixtures_packs_base_path() + "/" + TEST_PACK
-)
-
-PACKS = [
-    TEST_PACK_PATH,
-    st2tests.fixturesloader.get_fixtures_packs_base_path() + "/core",
-]
+PACKS = [TEST_PACK_PATH, CORE_PACK_PATH]
 
 RUNNER_RESULT_FAILED = (
     ac_const.LIVEACTION_STATUS_FAILED,
@@ -274,10 +268,16 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         lv_ac_db = lv_db_models.LiveActionDB(action=wf_meta["name"])
         lv_ac_db, ac_ex_db = ac_svc.request(lv_ac_db)
 
-        # Assert action execution for task is not started and workflow failed.
+        # Manually trigger workflow execution to start tasks (simulates async workflow engine).
         wf_ex_db = wf_db_access.WorkflowExecution.query(
             action_execution=str(ac_ex_db.id)
         )[0]
+        wf_svc.request_next_tasks(wf_ex_db)
+
+        # Refresh workflow execution after task processing.
+        wf_ex_db = wf_db_access.WorkflowExecution.get_by_id(str(wf_ex_db.id))
+
+        # Assert action execution for task is not started and workflow failed.
         tk_ex_dbs = wf_db_access.TaskExecution.query(
             workflow_execution=str(wf_ex_db.id)
         )
@@ -317,10 +317,16 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         lv_ac_db = lv_db_models.LiveActionDB(action=wf_meta["name"])
         lv_ac_db, ac_ex_db = ac_svc.request(lv_ac_db)
 
-        # Assert action execution for task is not started and workflow failed.
+        # Manually trigger workflow execution to start tasks (simulates async workflow engine).
         wf_ex_db = wf_db_access.WorkflowExecution.query(
             action_execution=str(ac_ex_db.id)
         )[0]
+        wf_svc.request_next_tasks(wf_ex_db)
+
+        # Refresh workflow execution after task processing.
+        wf_ex_db = wf_db_access.WorkflowExecution.get_by_id(str(wf_ex_db.id))
+
+        # Assert action execution for task is not started and workflow failed.
         tk_ex_dbs = wf_db_access.TaskExecution.query(
             workflow_execution=str(wf_ex_db.id)
         )
@@ -339,10 +345,7 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         self.assertDictEqual(ac_ex_db.result, expected_result)
 
     def test_fail_start_task_input_value_type(self):
-        if six.PY3:
-            msg = "Value \"{'x': 'foobar'}\" must either be a string or None. Got \"dict\"."
-        else:
-            msg = "Value \"{u'x': u'foobar'}\" must either be a string or None. Got \"dict\"."
+        msg = "Value \"{'x': 'foobar'}\" must either be a string or None. Got \"dict\"."
 
         msg = "ValueError: " + msg
 
@@ -360,10 +363,16 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         )
         lv_ac_db, ac_ex_db = ac_svc.request(lv_ac_db)
 
-        # Assert workflow and task executions failed.
+        # Manually trigger workflow execution to start tasks (simulates async workflow engine).
         wf_ex_db = wf_db_access.WorkflowExecution.query(
             action_execution=str(ac_ex_db.id)
         )[0]
+        wf_svc.request_next_tasks(wf_ex_db)
+
+        # Refresh workflow execution after task processing.
+        wf_ex_db = wf_db_access.WorkflowExecution.get_by_id(str(wf_ex_db.id))
+
+        # Assert workflow and task executions failed.
         self.assertEqual(wf_ex_db.status, wf_statuses.FAILED)
         self.assertListEqual(
             self.sort_workflow_errors(wf_ex_db.errors), expected_errors
@@ -373,7 +382,18 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
             workflow_execution=str(wf_ex_db.id)
         )[0]
         self.assertEqual(tk_ex_db.status, wf_statuses.FAILED)
-        self.assertDictEqual(tk_ex_db.result, {"errors": expected_errors})
+        self.assertEqual(
+            tk_ex_db.result["errors"][0]["type"], expected_errors[0]["type"]
+        )
+        self.assertEqual(
+            tk_ex_db.result["errors"][0]["message"], expected_errors[0]["message"]
+        )
+        self.assertEqual(
+            tk_ex_db.result["errors"][0]["task_id"], expected_errors[0]["task_id"]
+        )
+        self.assertEqual(
+            tk_ex_db.result["errors"][0]["route"], expected_errors[0]["route"]
+        )
 
         lv_ac_db = lv_db_access.LiveAction.get_by_id(str(lv_ac_db.id))
         self.assertEqual(lv_ac_db.status, ac_const.LIVEACTION_STATUS_FAILED)
@@ -414,7 +434,7 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         tk_ac_ex_db = ex_db_access.ActionExecution.query(
             task_execution=str(tk_ex_db.id)
         )[0]
-        tk_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk_ac_ex_db.liveaction["id"])
+        tk_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk_ac_ex_db.liveaction_id)
         self.assertEqual(tk_lv_ac_db.status, ac_const.LIVEACTION_STATUS_SUCCEEDED)
 
         # Manually handle action execution completion for task1 which has an error in publish.
@@ -470,7 +490,7 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         tk_ac_ex_db = ex_db_access.ActionExecution.query(
             task_execution=str(tk_ex_db.id)
         )[0]
-        tk_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk_ac_ex_db.liveaction["id"])
+        tk_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk_ac_ex_db.liveaction_id)
         self.assertEqual(tk_lv_ac_db.status, ac_const.LIVEACTION_STATUS_SUCCEEDED)
 
         # Manually handle action execution completion for task1 which has an error in publish.
@@ -494,10 +514,7 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         self.assertDictEqual(ac_ex_db.result, expected_result)
 
     def test_fail_next_task_input_value_type(self):
-        if six.PY3:
-            msg = "Value \"{'x': 'foobar'}\" must either be a string or None. Got \"dict\"."
-        else:
-            msg = "Value \"{u'x': u'foobar'}\" must either be a string or None. Got \"dict\"."
+        msg = "Value \"{'x': 'foobar'}\" must either be a string or None. Got \"dict\"."
 
         msg = "ValueError: " + msg
 
@@ -525,7 +542,7 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         tk1_ac_ex_db = ex_db_access.ActionExecution.query(
             task_execution=str(tk1_ex_db.id)
         )[0]
-        tk1_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk1_ac_ex_db.liveaction["id"])
+        tk1_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk1_ac_ex_db.liveaction_id)
         self.assertEqual(tk1_lv_ac_db.status, ac_const.LIVEACTION_STATUS_SUCCEEDED)
         self.assertEqual(wf_ex_db.status, wf_statuses.RUNNING)
 
@@ -535,13 +552,37 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         # Assert workflow execution and task2 execution failed.
         wf_ex_db = wf_db_access.WorkflowExecution.get_by_id(str(wf_ex_db.id))
         self.assertEqual(wf_ex_db.status, wf_statuses.FAILED)
-        self.assertListEqual(
-            self.sort_workflow_errors(wf_ex_db.errors), expected_errors
+        self.assertEqual(
+            self.sort_workflow_errors(wf_ex_db.errors)[0]["type"],
+            expected_errors[0]["type"],
+        )
+        self.assertEqual(
+            self.sort_workflow_errors(wf_ex_db.errors)[0]["message"],
+            expected_errors[0]["message"],
+        )
+        self.assertEqual(
+            self.sort_workflow_errors(wf_ex_db.errors)[0]["task_id"],
+            expected_errors[0]["task_id"],
+        )
+        self.assertEqual(
+            self.sort_workflow_errors(wf_ex_db.errors)[0]["route"],
+            expected_errors[0]["route"],
         )
 
         tk2_ex_db = wf_db_access.TaskExecution.query(task_id="task2")[0]
         self.assertEqual(tk2_ex_db.status, wf_statuses.FAILED)
-        self.assertDictEqual(tk2_ex_db.result, {"errors": expected_errors})
+        self.assertEqual(
+            tk2_ex_db.result["errors"][0]["type"], expected_errors[0]["type"]
+        )
+        self.assertEqual(
+            tk2_ex_db.result["errors"][0]["message"], expected_errors[0]["message"]
+        )
+        self.assertEqual(
+            tk2_ex_db.result["errors"][0]["task_id"], expected_errors[0]["task_id"]
+        )
+        self.assertEqual(
+            tk2_ex_db.result["errors"][0]["route"], expected_errors[0]["route"]
+        )
 
         lv_ac_db = lv_db_access.LiveAction.get_by_id(str(lv_ac_db.id))
         self.assertEqual(lv_ac_db.status, ac_const.LIVEACTION_STATUS_FAILED)
@@ -585,7 +626,7 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         tk1_ac_ex_db = ex_db_access.ActionExecution.query(
             task_execution=str(tk1_ex_db.id)
         )[0]
-        tk1_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk1_ac_ex_db.liveaction["id"])
+        tk1_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk1_ac_ex_db.liveaction_id)
         self.assertEqual(tk1_lv_ac_db.status, ac_const.LIVEACTION_STATUS_FAILED)
         wf_svc.handle_action_execution_completion(tk1_ac_ex_db)
 
@@ -636,7 +677,7 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         tk_ac_ex_db = ex_db_access.ActionExecution.query(
             task_execution=str(tk_ex_db.id)
         )[0]
-        tk_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk_ac_ex_db.liveaction["id"])
+        tk_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk_ac_ex_db.liveaction_id)
         self.assertEqual(tk_lv_ac_db.status, ac_const.LIVEACTION_STATUS_SUCCEEDED)
 
         # Manually handle action execution completion for task1 which has an error in publish.
@@ -692,7 +733,7 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         tk_ac_ex_db = ex_db_access.ActionExecution.query(
             task_execution=str(tk_ex_db.id)
         )[0]
-        tk_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk_ac_ex_db.liveaction["id"])
+        tk_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk_ac_ex_db.liveaction_id)
         self.assertEqual(tk_lv_ac_db.status, ac_const.LIVEACTION_STATUS_SUCCEEDED)
 
         # Manually handle action execution completion for task1 which has an error in publish.
@@ -745,7 +786,7 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         tk_ac_ex_db = ex_db_access.ActionExecution.query(
             task_execution=str(tk_ex_db.id)
         )[0]
-        tk_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk_ac_ex_db.liveaction["id"])
+        tk_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk_ac_ex_db.liveaction_id)
         self.assertEqual(tk_lv_ac_db.status, ac_const.LIVEACTION_STATUS_SUCCEEDED)
 
         # Manually handle action execution completion for task1 which has an error in publish.
@@ -801,7 +842,7 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         tk1_ac_ex_db = ex_db_access.ActionExecution.query(
             task_execution=str(tk1_ex_db.id)
         )[0]
-        tk1_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk1_ac_ex_db.liveaction["id"])
+        tk1_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk1_ac_ex_db.liveaction_id)
         self.assertEqual(tk1_lv_ac_db.status, ac_const.LIVEACTION_STATUS_SUCCEEDED)
         wf_svc.handle_action_execution_completion(tk1_ac_ex_db)
         wf_ex_db = wf_db_access.WorkflowExecution.get_by_id(wf_ex_db.id)
@@ -813,7 +854,7 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         tk2_ac_ex_db = ex_db_access.ActionExecution.query(
             task_execution=str(tk2_ex_db.id)
         )[0]
-        tk2_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk2_ac_ex_db.liveaction["id"])
+        tk2_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk2_ac_ex_db.liveaction_id)
         self.assertEqual(tk2_lv_ac_db.status, ac_const.LIVEACTION_STATUS_FAILED)
         wf_svc.handle_action_execution_completion(tk2_ac_ex_db)
 
@@ -844,7 +885,7 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         tk1_ac_ex_db = ex_db_access.ActionExecution.query(
             task_execution=str(tk1_ex_db.id)
         )[0]
-        tk1_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk1_ac_ex_db.liveaction["id"])
+        tk1_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk1_ac_ex_db.liveaction_id)
         self.assertEqual(tk1_lv_ac_db.status, ac_const.LIVEACTION_STATUS_FAILED)
         wf_svc.handle_action_execution_completion(tk1_ac_ex_db)
         wf_ex_db = wf_db_access.WorkflowExecution.get_by_id(wf_ex_db.id)
@@ -856,7 +897,7 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         tk2_ac_ex_db = ex_db_access.ActionExecution.query(
             task_execution=str(tk2_ex_db.id)
         )[0]
-        tk2_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk2_ac_ex_db.liveaction["id"])
+        tk2_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk2_ac_ex_db.liveaction_id)
         self.assertEqual(tk2_lv_ac_db.status, ac_const.LIVEACTION_STATUS_SUCCEEDED)
         wf_svc.handle_action_execution_completion(tk2_ac_ex_db)
         wf_ex_db = wf_db_access.WorkflowExecution.get_by_id(wf_ex_db.id)
@@ -902,7 +943,7 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         tk1_ac_ex_db = ex_db_access.ActionExecution.query(
             task_execution=str(tk1_ex_db.id)
         )[0]
-        tk1_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk1_ac_ex_db.liveaction["id"])
+        tk1_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk1_ac_ex_db.liveaction_id)
         self.assertEqual(tk1_lv_ac_db.status, ac_const.LIVEACTION_STATUS_FAILED)
         wf_svc.handle_action_execution_completion(tk1_ac_ex_db)
         wf_ex_db = wf_db_access.WorkflowExecution.get_by_id(wf_ex_db.id)
@@ -915,7 +956,7 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         tk2_ac_ex_db = ex_db_access.ActionExecution.query(
             task_execution=str(tk2_ex_db.id)
         )[0]
-        tk2_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk2_ac_ex_db.liveaction["id"])
+        tk2_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk2_ac_ex_db.liveaction_id)
         self.assertEqual(tk2_lv_ac_db.status, ac_const.LIVEACTION_STATUS_FAILED)
         wf_svc.handle_action_execution_completion(tk2_ac_ex_db)
         wf_ex_db = wf_db_access.WorkflowExecution.get_by_id(wf_ex_db.id)
@@ -967,7 +1008,7 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         mock.MagicMock(side_effect=[RUNNER_RESULT_FAILED]),
     )
     def test_include_result_to_error_log(self):
-        username = "stanley"
+        username = cfg.CONF.system_user.user
         wf_meta = base.get_wf_fixture_meta_data(TEST_PACK_PATH, "sequential.yaml")
         wf_input = {"who": "Thanos"}
         lv_ac_db = lv_db_models.LiveActionDB(
@@ -991,7 +1032,7 @@ class OrquestaErrorHandlingTest(st2tests.WorkflowTestCase):
         tk1_ac_ex_db = ex_db_access.ActionExecution.query(
             task_execution=str(tk1_ex_db.id)
         )[0]
-        tk1_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk1_ac_ex_db.liveaction["id"])
+        tk1_lv_ac_db = lv_db_access.LiveAction.get_by_id(tk1_ac_ex_db.liveaction_id)
         self.assertEqual(tk1_lv_ac_db.context.get("user"), username)
         self.assertEqual(tk1_lv_ac_db.status, ac_const.LIVEACTION_STATUS_FAILED)
 

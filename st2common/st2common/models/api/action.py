@@ -34,6 +34,7 @@ from st2common.models.db.liveaction import LiveActionDB
 from st2common.models.db.runner import RunnerTypeDB
 from st2common.constants.action import LIVEACTION_STATUSES
 from st2common.models.system.common import ResourceReference
+from st2common.fields import JSONDictEscapedFieldCompatibilityField
 
 
 __all__ = [
@@ -55,7 +56,7 @@ LOG = logging.getLogger(__name__)
 
 class RunnerTypeAPI(BaseAPI):
     """
-    The representation of an RunnerType in the system. An RunnerType
+    The representation of a RunnerType in the system. A RunnerType
     has a one-to-one mapping to a particular ActionRunner implementation.
     """
 
@@ -116,13 +117,9 @@ class RunnerTypeAPI(BaseAPI):
                 "type": "string",
                 "required": False,
             },
-            "output_schema": {
-                "description": "Schema for the runner's output.",
-                "type": "object",
-                "patternProperties": {r"^\w+$": util_schema.get_action_output_schema()},
-                "additionalProperties": False,
-                "default": {},
-            },
+            "output_schema": util_schema.get_action_output_schema(
+                description="Runner Output Schema"
+            ),
         },
         "additionalProperties": False,
     }
@@ -169,6 +166,7 @@ class RunnerTypeAPI(BaseAPI):
         return model
 
 
+# NOTE: Update pylint_plugins/fixtures/api_models.py if this changes significantly
 class ActionAPI(BaseAPI, APIUIDMixin):
     """
     The system entity that represents a Stack Action/Automation in the system.
@@ -228,13 +226,9 @@ class ActionAPI(BaseAPI, APIUIDMixin):
                 "additionalProperties": False,
                 "default": {},
             },
-            "output_schema": {
-                "description": "Schema for the action's output.",
-                "type": "object",
-                "patternProperties": {r"^\w+$": util_schema.get_action_output_schema()},
-                "additionalProperties": False,
-                "default": {},
-            },
+            "output_schema": util_schema.get_action_output_schema(
+                description="Action Output Schema"
+            ),
             "tags": {
                 "description": "User associated metadata assigned to this object.",
                 "type": "array",
@@ -447,9 +441,23 @@ class LiveActionAPI(BaseAPI):
         },
         "additionalProperties": False,
     }
-    skip_unescape_field_names = [
-        "result",
-    ]
+    skip_unescape_field_names = ["result", "parameters"]
+
+    @classmethod
+    def convert_raw(cls, doc, raw_values):
+        """
+        override this class to
+        convert any raw byte values into dict
+
+        :param doc: dict
+        :param raw_values: dict[field]:bytestring
+        """
+
+        for field_name, field_value in raw_values.items():
+            doc[
+                field_name
+            ] = JSONDictEscapedFieldCompatibilityField().parse_field_value(field_value)
+        return doc
 
     @classmethod
     def from_model(cls, model, mask_secrets=False):
@@ -458,7 +466,6 @@ class LiveActionAPI(BaseAPI):
             doc["start_timestamp"] = isotime.format(model.start_timestamp, offset=False)
         if model.end_timestamp:
             doc["end_timestamp"] = isotime.format(model.end_timestamp, offset=False)
-
         if getattr(model, "notify", None):
             doc["notify"] = NotificationsHelper.from_model(model.notify)
 

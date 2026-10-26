@@ -19,7 +19,7 @@ import re
 import six
 import networkx as nx
 
-from jinja2 import meta
+from jinja2 import meta, exceptions
 from oslo_config import cfg
 from st2common import log as logging
 from st2common.util.config_loader import get_config
@@ -92,7 +92,9 @@ def _create_graph(action_context, config):
     Creates a generic directed graph for depencency tree and fills it with basic context variables
     """
     G = nx.DiGraph()
-    system_keyvalue_context = {SYSTEM_SCOPE: KeyValueLookup(scope=FULL_SYSTEM_SCOPE)}
+    system_keyvalue_context = {
+        SYSTEM_SCOPE: KeyValueLookup(scope=FULL_SYSTEM_SCOPE, context=action_context)
+    }
 
     # If both 'user' and 'api_user' are specified, this prioritize 'api_user'
     user = action_context["user"] if "user" in action_context else None
@@ -107,7 +109,7 @@ def _create_graph(action_context, config):
         )
 
     system_keyvalue_context[USER_SCOPE] = UserKeyValueLookup(
-        scope=FULL_USER_SCOPE, user=user
+        scope=FULL_USER_SCOPE, user=user, context=action_context
     )
     G.add_node(DATASTORE_PARENT_SCOPE, value=system_keyvalue_context)
     G.add_node(ACTION_CONTEXT_KV_PREFIX, value=action_context)
@@ -115,7 +117,7 @@ def _create_graph(action_context, config):
     return G
 
 
-def _process(G, name, value):
+def _process(G, name, value, parameter_schemas=None):
     """
     Determines whether parameter is a template or a value. Adds graph nodes and edges accordingly.
     """
@@ -128,24 +130,40 @@ def _process(G, name, value):
     if isinstance(value, list) or isinstance(value, dict):
         complex_value_str = str(value)
 
-    is_jinja_expr = jinja_utils.is_jinja_expression(
-        value
-    ) or jinja_utils.is_jinja_expression(complex_value_str)
+    # Check if the parameter is of type raw_string
+    is_raw_string = False
+    if parameter_schemas:
+        for schema in parameter_schemas:
+            if name in schema and schema[name].get("type") == "raw_string":
+                is_raw_string = True
+                break
+
+    # Skip Jinja processing for raw_string type parameters
+    is_jinja_expr = False
+    if not is_raw_string:
+        is_jinja_expr = jinja_utils.is_jinja_expression(
+            value
+        ) or jinja_utils.is_jinja_expression(complex_value_str)
 
     if is_jinja_expr:
-        G.add_node(name, template=value)
+        try:
+            template_ast = ENV.parse(value)
+            G.add_node(name, template=value)
 
-        template_ast = ENV.parse(value)
-        LOG.debug("Template ast: %s", template_ast)
-        # Dependencies of the node represent jinja variables used in the template
-        # We're connecting nodes with an edge for every depencency to traverse them
-        # in the right order and also make sure that we don't have missing or cyclic
-        # dependencies upfront.
-        dependencies = meta.find_undeclared_variables(template_ast)
-        LOG.debug("Dependencies: %s", dependencies)
-        if dependencies:
-            for dependency in dependencies:
-                G.add_edge(dependency, name)
+            LOG.debug("Template ast: %s", template_ast)
+            # Dependencies of the node represent jinja variables used in the template
+            # We're connecting nodes with an edge for every depencency to traverse them
+            # in the right order and also make sure that we don't have missing or cyclic
+            # dependencies upfront.
+            dependencies = meta.find_undeclared_variables(template_ast)
+            LOG.debug("Dependencies: %s", dependencies)
+            if dependencies:
+                for dependency in dependencies:
+                    G.add_edge(dependency, name)
+        except exceptions.TemplateSyntaxError:
+            G.add_node(name, value=value)
+            # not jinja after all
+            # is_jinga_expression only checks for {{ or {{% for speed
     else:
         G.add_node(name, value=value)
 
@@ -303,6 +321,7 @@ def render_live_params(
     additional_contexts=None,
 ):
     """
+    :param params: BaseDict
     Renders list of parameters. Ensures that there's no cyclic or missing dependencies. Returns a
     dict of plain rendered parameters.
     """
@@ -327,8 +346,12 @@ def render_live_params(
     for name, value in six.iteritems(additional_contexts):
         G.add_node(name, value=value)
 
-    [_process(G, name, value) for name, value in six.iteritems(params)]
-    _process_defaults(G, [action_parameters, runner_parameters])
+    parameter_schemas = [action_parameters, runner_parameters]
+    [
+        _process(G, name, value, parameter_schemas)
+        for name, value in six.iteritems(params)
+    ]
+    _process_defaults(G, parameter_schemas)
     _validate(G)
 
     context = _resolve_dependencies(G)

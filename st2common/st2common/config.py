@@ -19,7 +19,9 @@ import socket
 import sys
 
 from oslo_config import cfg
+from oslo_config.sources._environment import EnvironmentConfigurationSource
 
+from st2common.constants.compression import ZSTANDARD_COMPRESS, VALID_COMPRESS
 from st2common.constants.system import VERSION_STRING
 from st2common.constants.system import DEFAULT_CONFIG_FILE_PATH
 from st2common.constants.runners import PYTHON_RUNNER_DEFAULT_LOG_LEVEL
@@ -122,6 +124,15 @@ def register_opts(ignore_errors=False):
             default=False,
             help="True to validate action and runner output against schema.",
         ),
+        cfg.StrOpt(
+            "concurrency_library",
+            default="gevent",
+            choices=["eventlet", "gevent"],
+            help="Green thread concurrency library to use ('eventlet' or 'gevent'). "
+            "NOTE: This is read directly from this config file at process startup, "
+            "before oslo_config is available, so it cannot be overridden via CLI args "
+            "or environment variables.",
+        ),
     ]
 
     do_register_opts(system_opts, "system", ignore_errors)
@@ -143,8 +154,10 @@ def register_opts(ignore_errors=False):
         cfg.StrOpt(
             "system_runners_base_path",
             default=system_runners_base_path,
-            help="Path to the directory which contains system runners. "
-            "NOTE: This option has been deprecated and it's unused since StackStorm v3.0.0",
+            help="Path to the directory which contains system runners.",
+            deprecated_for_removal=True,
+            deprecated_reason="Option unused since StackStorm v3.0.0",
+            deprecated_since="3.0.0",
         ),
         cfg.StrOpt(
             "packs_base_paths",
@@ -154,8 +167,10 @@ def register_opts(ignore_errors=False):
         cfg.StrOpt(
             "runners_base_paths",
             default=None,
-            help="Paths which will be searched for runners. "
-            "NOTE: This option has been deprecated and it's unused since StackStorm v3.0.0",
+            help="Paths which will be searched for runners.",
+            deprecated_for_removal=True,
+            deprecated_reason="Option unused since StackStorm v3.0.0",
+            deprecated_since="3.0.0",
         ),
         cfg.ListOpt(
             "index_url",
@@ -172,6 +187,7 @@ def register_opts(ignore_errors=False):
         cfg.StrOpt(
             "webui_base_url",
             default="https://%s" % socket.getfqdn(),
+            sample_default="https://localhost",
             help="Base https URL to access st2 Web UI. This is used to construct history URLs "
             "that are sent out when chatops is used to kick off executions.",
         )
@@ -184,7 +200,7 @@ def register_opts(ignore_errors=False):
         cfg.IntOpt("port", default=27017, help="port of db server"),
         cfg.StrOpt("db_name", default="st2", help="name of database"),
         cfg.StrOpt("username", help="username for db login"),
-        cfg.StrOpt("password", help="password for db login"),
+        cfg.StrOpt("password", help="password for db login", secret=True),
         cfg.IntOpt(
             "connection_timeout",
             default=3 * 1000,
@@ -206,35 +222,108 @@ def register_opts(ignore_errors=False):
             help="Backoff multiplier (seconds).",
         ),
         cfg.BoolOpt(
-            "ssl", default=False, help="Create the connection to mongodb using SSL"
+            "tls",
+            deprecated_name="ssl",
+            default=False,
+            help="Create the connection to mongodb using TLS.",
+        ),
+        cfg.StrOpt(
+            "tls_certificate_key_file",
+            default=None,
+            help=(
+                "Client certificate used to identify the local connection against MongoDB. "
+                "The certificate file must contain one or both of private key and certificate. "
+                "Supplying separate files for private key (ssl_keyfile) and certificate (ssl_certfile) "
+                "is no longer supported. "
+                "If encrypted, pass the password or passphrase in tls_certificate_key_file_password."
+            ),
+        ),
+        cfg.StrOpt(
+            "tls_certificate_key_file_password",
+            default=None,
+            help=(
+                "The password or passphrase to decrypt the file in tls_certificate_key_file. "
+                "Only set this if tls_certificate_key_file is encrypted."
+            ),
+            secret=True,
         ),
         cfg.StrOpt(
             "ssl_keyfile",
             default=None,
             help="Private keyfile used to identify the local connection against MongoDB.",
+            deprecated_for_removal=True,
+            deprecated_reason=(
+                "Use tls_certificate_key_file with a path to a file containing "
+                "the concatenation of the files from ssl_keyfile and ssl_certfile. "
+                "This option is ignored by pymongo."
+            ),
+            deprecated_since="3.9.0",
         ),
         cfg.StrOpt(
             "ssl_certfile",
             default=None,
             help="Certificate file used to identify the localconnection",
+            deprecated_for_removal=True,
+            deprecated_reason=(
+                "Use tls_certificate_key_file with a path to a file containing "
+                "the concatenation of the files from ssl_keyfile and ssl_certfile. "
+                "This option is ignored by pymongo. "
+            ),
+            deprecated_since="3.9.0",
+        ),
+        cfg.BoolOpt(
+            "tls_allow_invalid_certificates",
+            default=None,
+            sample_default=False,
+            help=(
+                "Specifies whether MongoDB is allowed to pass an invalid certificate. "
+                "This defaults to False to have security by default. "
+                "Only temporarily set to True if you need to debug the connection."
+            ),
         ),
         cfg.StrOpt(
             "ssl_cert_reqs",
             default=None,
-            choices="none, optional, required",
-            help="Specifies whether a certificate is required from the other side of the "
-            "connection, and whether it will be validated if provided",
+            choices=["none", "optional", "required"],
+            help=(
+                "Specifies whether a certificate is required from the other side of the "
+                "connection, and whether it will be validated if provided"
+            ),
+            deprecated_for_removal=True,
+            deprecated_reason=(
+                "Use tls_allow_invalid_certificates with the following: "
+                "The 'optional' and 'required' values are equivalent to tls_allow_invalid_certificates=False. "
+                "The 'none' value is equivalent to tls_allow_invalid_certificates=True. "
+                "This option is a needlessly more complex version of tls_allow_invalid_certificates."
+            ),
+            deprecated_since="3.9.0",
         ),
         cfg.StrOpt(
-            "ssl_ca_certs",
+            "tls_ca_file",
+            deprecated_name="ssl_ca_certs",
             default=None,
-            help="ca_certs file contains a set of concatenated CA certificates, which are "
-            "used to validate certificates passed from MongoDB.",
+            help=(
+                "ca_certs file contains a set of concatenated CA certificates, which are "
+                "used to validate certificates passed from MongoDB."
+            ),
+        ),
+        cfg.BoolOpt(
+            "tls_allow_invalid_hostnames",
+            default=None,
+            sample_default=False,
+            help=(
+                "If True and `tlsAllowInvalidCertificates` is True, disables hostname verification. "
+                "This defaults to False to have security by default. "
+                "Only temporarily set to True if you need to debug the connection."
+            ),
         ),
         cfg.BoolOpt(
             "ssl_match_hostname",
             default=True,
             help="If True and `ssl_cert_reqs` is not None, enables hostname verification",
+            deprecated_for_removal=True,
+            deprecated_reason="Use tls_allow_invalid_hostnames with the opposite value from this option.",
+            deprecated_since="3.9.0",
         ),
         cfg.StrOpt(
             "authentication_mechanism",
@@ -242,6 +331,14 @@ def register_opts(ignore_errors=False):
             help="Specifies database authentication mechanisms. "
             "By default, it use SCRAM-SHA-1 with MongoDB 3.0 and later, "
             "MONGODB-CR (MongoDB Challenge Response protocol) for older servers.",
+        ),
+        cfg.StrOpt(
+            "parameter_result_compression",
+            default=ZSTANDARD_COMPRESS,
+            required=True,
+            choices=VALID_COMPRESS,
+            help="compression for parameter and result storage in liveaction and "
+            "execution models",
         ),
         cfg.StrOpt(
             "compressors",
@@ -254,7 +351,7 @@ def register_opts(ignore_errors=False):
         cfg.IntOpt(
             "zlib_compression_level",
             default="",
-            help="Compression level when compressors is set to zlib. Valid calues are -1 to 9. "
+            help="Compression level when compressors is set to zlib. Valid values are -1 to 9. "
             "Defaults to 6.",
         ),
     ]
@@ -284,6 +381,29 @@ def register_opts(ignore_errors=False):
             default=10000,
             help="How long should we wait between connection retries.",
         ),
+        cfg.IntOpt(
+            "connection_retry_max_attempts",
+            default=10,
+            help="Maximum number of retry attempts for broker connection and reconnection. "
+            "This prevents infinite retry loops when the broker is unavailable. "
+            "Applies to both initial connection and reconnection during message publishing. "
+            "Set to 0 to retry indefinitely (not recommended).",
+        ),
+        cfg.IntOpt(
+            "connection_retry_interval_start",
+            default=1,
+            help="Starting retry interval in seconds for broker connection attempts.",
+        ),
+        cfg.IntOpt(
+            "connection_retry_interval_step",
+            default=1,
+            help="Increment for retry interval after each attempt (seconds).",
+        ),
+        cfg.IntOpt(
+            "connection_retry_interval_max",
+            default=30,
+            help="Maximum retry interval in seconds for broker connection attempts.",
+        ),
         cfg.BoolOpt(
             "ssl",
             default=False,
@@ -303,7 +423,7 @@ def register_opts(ignore_errors=False):
         cfg.StrOpt(
             "ssl_cert_reqs",
             default=None,
-            choices="none, optional, required",
+            choices=["none", "optional", "required"],
             help="Specifies whether a certificate is required from the other side of the "
             "connection, and whether it will be validated if provided.",
         ),
@@ -321,9 +441,14 @@ def register_opts(ignore_errors=False):
         cfg.StrOpt(
             "compression",
             default=None,
+            choices=["zstd", "lzma", "bz2", "gzip", None],
             help="Compression algorithm to use for compressing the payloads which are sent over "
-            "the message bus. Valid values include: zstd, lzma, bz2, gzip. Defaults to no "
-            "compression.",
+            "the message bus. Defaults to no compression.",
+        ),
+        cfg.StrOpt(
+            "prefix",
+            default="st2",
+            help="Prefix for all exchange and queue names.",
         ),
     ]
 
@@ -368,10 +493,33 @@ def register_opts(ignore_errors=False):
             default=["http://127.0.0.1:3000"],
             help="List of origins allowed for api, auth and stream",
         ),
+        cfg.IntOpt(
+            "max_page_size",
+            default=100,
+            help="Maximum limit (page size) argument which can be specified by the "
+            "user in a query string.",
+        ),
         cfg.BoolOpt(
             "mask_secrets",
             default=True,
             help="True to mask secrets in the API responses",
+        ),
+        cfg.BoolOpt(
+            "auth_cookie_secure",
+            default=True,
+            help='True if secure flag should be set for "auth-token" cookie which is set on '
+            "successful authentication via st2web. You should only set this to False if you have "
+            "a good reason to not run and access StackStorm behind https proxy.",
+        ),
+        cfg.StrOpt(
+            "auth_cookie_same_site",
+            default="lax",
+            choices=["strict", "lax", "none", "unset"],
+            help="SameSite attribute value for the "
+            "auth-token cookie we set on successful authentication from st2web. If you "
+            "don't have a specific reason (e.g. supporting old browsers) we recommend you "
+            'set this value to strict. Setting it to "unset" will default to the behavior '
+            "in previous releases and not set this SameSite header value.",
         ),
     ]
 
@@ -437,11 +585,13 @@ def register_opts(ignore_errors=False):
         cfg.StrOpt(
             "python_binary",
             default=default_python_bin_path,
+            sample_default="/usr/bin/python3",
             help="Python binary which will be used by Python actions.",
         ),
         cfg.StrOpt(
             "virtualenv_binary",
             default=default_virtualenv_bin_path,
+            sample_default="/usr/bin/virtualenv",
             help="Virtualenv binary which should be used to create pack virtualenvs.",
         ),
         cfg.StrOpt(
@@ -498,6 +648,28 @@ def register_opts(ignore_errors=False):
 
     do_register_opts(
         dispatcher_pool_opts, group="actionrunner", ignore_errors=ignore_errors
+    )
+
+    graceful_shutdown_opts = [
+        cfg.BoolOpt(
+            "graceful_shutdown",
+            default=True,
+            help="This will enable the graceful shutdown and wait for ongoing requests to complete until exit_timeout.",
+        ),
+        cfg.IntOpt(
+            "exit_still_active_check",
+            default=300,
+            help="How long to wait for process (in seconds) to exit after receiving shutdown signal.",
+        ),
+        cfg.IntOpt(
+            "still_active_check_interval",
+            default=2,
+            help="Time interval between subsequent queries to check running executions.",
+        ),
+    ]
+
+    do_register_opts(
+        graceful_shutdown_opts, group="actionrunner", ignore_errors=ignore_errors
     )
 
     ssh_runner_opts = [
@@ -628,8 +800,8 @@ def register_opts(ignore_errors=False):
         cfg.BoolOpt(
             "use-debugger",
             default=True,
-            help="Enables debugger. Note that using this option changes how the "
-            "eventlet library is used to support async IO. This could result in "
+            help="Enables debugger.  Note that using this option changes how the "
+            "concurrency library is used to support async IO.  This could result in "
             "failures that do not occur under normal operation.",
         ),
         cfg.BoolOpt(
@@ -638,14 +810,14 @@ def register_opts(ignore_errors=False):
             help="Enable code profiler mode. Do not use in production.",
         ),
         cfg.BoolOpt(
-            "enable-eventlet-blocking-detection",
+            "enable-concurrency-blocking-detection",
             default=False,
-            help="Enable eventlet blocking detection logic. Do not use in production.",
+            help="Enable blocking detection logic in concurrency library.  Do not use in production.",
         ),
         cfg.FloatOpt(
-            "eventlet-blocking-detection-resolution",
+            "concurrency-blocking-detection-resolution",
             default=0.5,
-            help="Resolution in seconds for eventlet blocking detection logic.",
+            help="Resolution in seconds for blocking detection logic in currency library.",
         ),
     ]
 
@@ -758,6 +930,16 @@ def register_opts(ignore_errors=False):
             "orphaned and cancelled by the garbage collector. A value of zero means the "
             "feature is disabled. This is disabled by default.",
         ),
+        cfg.IntOpt(
+            "exit_still_active_check",
+            default=300,
+            help="How long to wait for process (in seconds) to exit after receiving shutdown signal.",
+        ),
+        cfg.IntOpt(
+            "still_active_check_interval",
+            default=2,
+            help="Time interval between subsequent queries to check executions handled by WFE.",
+        ),
     ]
 
     do_register_opts(
@@ -765,7 +947,20 @@ def register_opts(ignore_errors=False):
     )
 
 
+class St2EnvironmentConfigurationSource(EnvironmentConfigurationSource):
+    @staticmethod
+    def get_name(group_name, option_name):
+        group_name = group_name or "DEFAULT"
+        return "ST2_{}__{}".format(group_name.upper(), option_name.upper())
+
+
+def use_st2_env_vars(conf: cfg.ConfigOpts) -> None:
+    # Override oslo_config's 'OS_' env var prefix with 'ST2_'.
+    conf._env_driver = St2EnvironmentConfigurationSource()
+
+
 def parse_args(args=None, ignore_errors=False):
+    use_st2_env_vars(cfg.CONF)
     register_opts(ignore_errors=ignore_errors)
     cfg.CONF(
         args=args,

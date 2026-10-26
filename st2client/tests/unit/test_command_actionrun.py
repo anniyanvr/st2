@@ -16,7 +16,7 @@
 from __future__ import absolute_import
 import copy
 
-import unittest2
+import unittest
 import six
 import mock
 
@@ -24,7 +24,7 @@ from st2client.commands.action import ActionRunCommand
 from st2client.models.action import Action, RunnerType
 
 
-class ActionRunCommandTest(unittest2.TestCase):
+class ActionRunCommandTest(unittest.TestCase):
     def test_get_params_types(self):
         runner = RunnerType()
         runner_params = {
@@ -261,3 +261,209 @@ class ActionRunCommandTest(unittest2.TestCase):
 
         # set auto_dict back to default
         mockarg.auto_dict = False
+
+    def test_correctly_process_inherit_env_when_no_parameters_set(self):
+        """test_correctly_process_inherit_env_when_no_parameters_set
+
+        This tests that we still correctly pass through the environment variables
+        when --inherit-env is set and we run an action that does not have parameters
+        """
+
+        runner = RunnerType()
+        runner.runner_parameters = {}
+
+        action = Action()
+        action.ref = "test.action"
+
+        subparser = mock.Mock()
+        command = ActionRunCommand(action, self, subparser, name="test")
+
+        mockarg = mock.Mock()
+        mockarg.inherit_env = True
+        mockarg.auto_dict = True
+        mockarg.parameters = []
+
+        k1 = "key1"
+        v1 = "value1"
+        k2 = "key2"
+        v2 = "value2"
+
+        with mock.patch("os.environ.copy") as mockCopy:
+            mockCopy.return_value = {k1: v1, k2: v2}
+            param = command._get_action_parameters_from_args(
+                action=action, runner=runner, args=mockarg
+            )
+
+        self.assertIn("env", param)
+
+        env_params = param["env"]
+        self.assertIn(k1, env_params)
+        self.assertIn(k2, env_params)
+        self.assertEqual(v1, env_params[k1])
+        self.assertEqual(v2, env_params[k2])
+
+    def test_correctly_process_inherit_env_when_parameters_set(self):
+        """test_correctly_process_inherit_env_when_parameters_set
+
+        This tests that we still correctly pass through the environment variables
+        when --inherit-env is set and we run an action that has action parameters set
+        """
+
+        runner = RunnerType()
+        runner.runner_parameters = {}
+
+        action = Action()
+        action.ref = "test.action"
+        action.parameters = {
+            "param_string": {"type": "string"},
+            "param_array": {"type": "array"},
+            "param_array_of_dicts": {"type": "array"},
+        }
+
+        subparser = mock.Mock()
+        command = ActionRunCommand(action, self, subparser, name="test")
+
+        p_string = "param_string"
+        p_array = "param_array"
+        p_ra_dicts = "param_array_of_dicts"
+        mockarg = mock.Mock()
+        mockarg.inherit_env = True
+        mockarg.auto_dict = True
+        mockarg.parameters = [
+            f"{p_string}=hoge",
+            f"{p_array}=foo,bar",
+            f"{p_ra_dicts}=foo:1,bar:2",
+        ]
+
+        k1 = "key1"
+        v1 = "value1"
+        k2 = "key2"
+        v2 = "value2"
+
+        with mock.patch("os.environ.copy") as mockCopy:
+            mockCopy.return_value = {k1: v1, k2: v2}
+            param = command._get_action_parameters_from_args(
+                action=action, runner=runner, args=mockarg
+            )
+
+        self.assertIn("env", param)
+
+        env_params = param["env"]
+        self.assertIn(k1, env_params)
+        self.assertIn(k2, env_params)
+        self.assertEqual(v1, env_params[k1])
+        self.assertEqual(v2, env_params[k2])
+        self.assertIn(p_string, param)
+        self.assertEqual("hoge", param[p_string])
+        self.assertIn(p_array, param)
+        self.assertIn("foo", param[p_array])
+        self.assertIn("bar", param[p_array])
+        self.assertIn(p_ra_dicts, param)
+        self.assertDictEqual({"foo": "1", "bar": "2"}, param[p_ra_dicts][0])
+
+    def test_correctly_generate_empty_params_no_inherit_empty_parameters(self):
+        """test_correctly_generate_empty_params_no_inherit_empty_parameters
+
+        Verifies that we return an empty dict when we do not provide inherit env and parameters
+        """
+
+        runner = RunnerType()
+        runner.runner_parameters = {}
+
+        action = Action()
+        action.ref = "test.action"
+
+        subparser = mock.Mock()
+        command = ActionRunCommand(action, self, subparser, name="test")
+
+        mockarg = mock.Mock()
+        mockarg.inherit_env = False
+        mockarg.auto_dict = True
+        mockarg.parameters = []
+
+        k1 = "key1"
+        v1 = "value1"
+        k2 = "key2"
+        v2 = "value2"
+
+        with mock.patch("os.environ.copy") as mockCopy:
+            mockCopy.return_value = {k1: v1, k2: v2}
+            param = command._get_action_parameters_from_args(
+                action=action, runner=runner, args=mockarg
+            )
+
+        self.assertDictEqual({}, param)
+
+    def test_sort_parameters_mixed_position_types(self):
+        """Regression test for #5130.
+
+        When some parameters have a numeric 'position' attribute and others do
+        not, sorted() previously raised TypeError because the sort key returned
+        either int or str depending on the parameter. Verify that sorting now
+        succeeds and that positioned parameters come first (by position), with
+        unpositioned parameters following in alphabetical order.
+        """
+        action = Action()
+        action.ref = "test.action"
+        action.parameters = {}
+
+        subparser = mock.Mock()
+        command = ActionRunCommand(action, self, subparser, name="test")
+
+        parameters = {
+            "host": {"type": "string", "position": 0},
+            "timeout": {"type": "integer", "position": 1},
+            "verbose": {"type": "boolean"},
+            "output": {"type": "string"},
+        }
+        names = ["verbose", "output", "host", "timeout"]
+
+        # Must not raise TypeError
+        result = command._sort_parameters(parameters=parameters, names=names)
+
+        # Positioned params come first, in ascending position order
+        self.assertEqual(result[0], "host")
+        self.assertEqual(result[1], "timeout")
+        # Unpositioned params follow, alphabetically
+        self.assertEqual(result[2], "output")
+        self.assertEqual(result[3], "verbose")
+
+    def test_sort_parameters_all_positioned(self):
+        """Parameters that all have a 'position' attribute sort by position."""
+        action = Action()
+        action.ref = "test.action"
+        action.parameters = {}
+
+        subparser = mock.Mock()
+        command = ActionRunCommand(action, self, subparser, name="test")
+
+        parameters = {
+            "z_param": {"type": "string", "position": 2},
+            "a_param": {"type": "string", "position": 0},
+            "m_param": {"type": "string", "position": 1},
+        }
+        names = ["z_param", "a_param", "m_param"]
+
+        result = command._sort_parameters(parameters=parameters, names=names)
+
+        self.assertEqual(result, ["a_param", "m_param", "z_param"])
+
+    def test_sort_parameters_none_positioned(self):
+        """Parameters with no 'position' attribute sort alphabetically by name."""
+        action = Action()
+        action.ref = "test.action"
+        action.parameters = {}
+
+        subparser = mock.Mock()
+        command = ActionRunCommand(action, self, subparser, name="test")
+
+        parameters = {
+            "zebra": {"type": "string"},
+            "apple": {"type": "string"},
+            "mango": {"type": "string"},
+        }
+        names = ["zebra", "apple", "mango"]
+
+        result = command._sort_parameters(parameters=parameters, names=names)
+
+        self.assertEqual(result, ["apple", "mango", "zebra"])

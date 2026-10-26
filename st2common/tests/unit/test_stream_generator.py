@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import mock
-import unittest2
+import unittest
 
 from st2common.stream import listener
 
@@ -52,9 +52,9 @@ class MockListener(listener.BaseListener):
         pass
 
 
-class TestStream(unittest2.TestCase):
+class TestStream(unittest.TestCase):
     @mock.patch("st2common.stream.listener.BaseListener._get_action_ref_for_body")
-    @mock.patch("eventlet.Queue")
+    @mock.patch("st2common.util.concurrency.Queue")
     def test_generator(self, mock_queue, get_action_ref_for_body):
         get_action_ref_for_body.return_value = None
         mock_queue.return_value = MockQueue()
@@ -68,4 +68,4 @@ class TestStream(unittest2.TestCase):
         )
         events = EVENTS.append("")
         for index, val in enumerate(app_iter):
-            self.assertEquals(val, events[index])
+            self.assertEqual(val, events[index])

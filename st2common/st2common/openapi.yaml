@@ -465,15 +465,15 @@ paths:
           description: Unexpected error
           schema:
             $ref: '#/definitions/Error'  
-  /api/v1/actions/views/parameters/{action_id}:
+  /api/v1/actions/views/parameters/{ref_or_id}:
     get:
       operationId: st2api.controllers.v1.action_views:parameters_view_controller.get_one
       description: |
         Get parameters for an action.
       parameters:
-        - name: action_id
+        - name: ref_or_id
           in: path
-          description: Entity id
+          description: Entity reference or id
           type: string
           required: true
       x-parameters:
@@ -806,6 +806,11 @@ paths:
           description: Object containing the format to be matched.
           schema:
             $ref: '#/definitions/ActionAliasMatchRequest'
+      x-parameters:
+        - name: user
+          in: context
+          x-as: requester_user
+          description: User performing the operation.
       responses:
         '200':
           description: Action alias match pattern
@@ -840,6 +845,11 @@ paths:
           description: Number of actions alias to offset
           type: integer
           default: 0
+      x-parameters:
+        - name: user
+          in: context
+          x-as: requester_user
+          description: User performing the operation.
       responses:
         '200':
           description: Action alias match pattern
@@ -1429,7 +1439,7 @@ paths:
           schema:
             type: string
             # Response is raw text so we don't want to perform validation on it
-            validate_response: false
+            x-validate-response: false
         default:
           description: Unexpected error
           schema:
@@ -1998,7 +2008,7 @@ paths:
           schema:
             type: array
             items:
-              $ref: '#/definitions/PackView'
+              $ref: '#/definitions/DataFilesSubSchema'
           examples:
             application/json:
               ref: 'core.local'
@@ -2391,11 +2401,11 @@ paths:
           description: User performing the operation.
       responses:
         '200':
-          description: Policy created successfully.
+          description: Policy list
           schema:
             type: array
             items:
-              - $ref: '#/definitions/PolicyList'
+              $ref: '#/definitions/PolicyList'
           examples:
             application/json:
               ref: 'core.webhook'
@@ -3074,7 +3084,7 @@ paths:
           description: User performing the operation.
       responses:
         '200':
-          description: List of rules
+          description: List of runner types
           schema:
             type: array
             items:
@@ -4444,6 +4454,10 @@ paths:
           in: header
           description: set externally to indicate real source of the request
           type: string
+        - name: x-forwarded-user
+          in: header
+          description: set externally to indicate the remote username in the case of proxy auth
+          type: string
         - name: request
           in: body
           description: Lifespan of the token
@@ -4834,23 +4848,7 @@ definitions:
           formats:
             type: array
             description: Possible parameter format.
-            items:
-              oneOf:
-              - type: string
-              - type: object
-                description: Matched alias formats
-                properties:
-                  representation:
-                    type: array
-                    description: Alias format representations
-                    items:
-                      type: string
-                  match_multiple:
-                    type: boolean
-                    optional: true
-                  display:
-                    type: string
-                    description: Display string of alias format
+            items: {}
           ack:
             type: object
             description: Acknowledgement message format.
@@ -4880,10 +4878,7 @@ definitions:
             description: How long (in milliseconds) to delay the execution before scheduling.
             type: integer
       execution:
-        type: object
-        description: Execution result
-        properties:
-          $ref: '#/definitions/Execution'
+        $ref: '#/definitions/Execution'
       message:
         type: string
   AliasMatchAndExecuteInputAPI:
@@ -4927,11 +4922,13 @@ definitions:
       rule:
         $ref: '#/definitions/Rule'
       action:
-        $ref: '#/definitions/Action'
+        type: object
       runner:
-        $ref: '#/definitions/RunnerType'
+        type: object
       liveaction:
         $ref: '#/definitions/LiveAction'
+      liveaction_id:
+        type: string
       task_execution:
         type: string
       workflow_execution:
@@ -5172,8 +5169,9 @@ definitions:
       skip_dependencies:
         type: boolean
         description: Set to True to skip pack dependency installations.
-        required: false
         default: false
+    required:
+      - packs
   PacksUninstall:
     type: object
     properties:
@@ -5198,6 +5196,10 @@ definitions:
         type: array
         items:
           $ref: '#/definitions/PacksContentRegisterType'
+      fail_on_failure:
+        type: boolean
+        description: True to fail on failure
+        default: true
   PacksContentRegisterType:
           type: string
           enum: ['all',
@@ -5441,11 +5443,13 @@ definitions:
         description: Channels to post notifications to.
         items:
           type: string
+          x-nullable: true
       channels:  # Deprecated. Only here for backward compatibility.
         type: array
         description: Channels to post notifications to.
         items:
           type: string
+          x-nullable: true
     additionalProperties: false
   ActionDeleteSchema:
     type: object
@@ -5585,9 +5589,9 @@ securityDefinitions:
     description: Cookie representing user's short-lived access token.
     type: apiKey
     name: auth-token
-    in: cookie
+    in: header
+    x-in: cookie
     x-operationId: st2common.util.auth:validate_token
-
 security:
   - auth-token-header: []
   - api-key-header: []

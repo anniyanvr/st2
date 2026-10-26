@@ -33,11 +33,11 @@ from st2common.services import trace as trace_service
 from st2actions.policies.retry import ExecutionRetryPolicyApplicator
 from st2tests.base import DbTestCase
 from st2tests.base import CleanDbTestCase
+from st2tests.fixtures.generic.fixture import PACK_NAME as PACK
 from st2tests.fixturesloader import FixturesLoader
 
 __all__ = ["RetryPolicyTestCase"]
 
-PACK = "generic"
 TEST_FIXTURES = {"actions": ["action1.yaml"], "policies": ["policy_4.yaml"]}
 
 
@@ -128,7 +128,7 @@ class RetryPolicyTestCase(CleanDbTestCase):
         self.assertEqual(action_execution_dbs[1].status, LIVEACTION_STATUS_REQUESTED)
 
         # Verify retried execution contains policy related context
-        original_liveaction_id = action_execution_dbs[0].liveaction["id"]
+        original_liveaction_id = action_execution_dbs[0].liveaction_id
 
         context = action_execution_dbs[1].context
         self.assertIn("policies", context)
@@ -183,7 +183,7 @@ class RetryPolicyTestCase(CleanDbTestCase):
         self.assertEqual(action_execution_dbs[1].status, LIVEACTION_STATUS_REQUESTED)
 
         # Verify retried execution contains policy related context
-        original_liveaction_id = action_execution_dbs[0].liveaction["id"]
+        original_liveaction_id = action_execution_dbs[0].liveaction_id
 
         context = action_execution_dbs[1].context
         self.assertIn("policies", context)
@@ -216,7 +216,7 @@ class RetryPolicyTestCase(CleanDbTestCase):
         self.assertEqual(action_execution_dbs[2].status, LIVEACTION_STATUS_REQUESTED)
 
         # Verify retried execution contains policy related context
-        original_liveaction_id = action_execution_dbs[1].liveaction["id"]
+        original_liveaction_id = action_execution_dbs[1].liveaction_id
 
         context = action_execution_dbs[2].context
         self.assertIn("policies", context)

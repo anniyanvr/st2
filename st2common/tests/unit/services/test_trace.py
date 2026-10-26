@@ -19,18 +19,17 @@ import copy
 from collections import OrderedDict
 
 import bson
-from unittest2 import TestCase
+from unittest import TestCase
 
 from st2common.exceptions.db import StackStormDBObjectNotFoundError
 from st2common.exceptions.trace import UniqueTraceNotFoundException
 from st2common.models.api.trace import TraceContext
 from st2common.persistence.trace import Trace
 from st2common.services import trace as trace_service
+from st2tests.fixtures.traces.fixture import PACK_NAME as FIXTURES_PACK
 from st2tests.fixturesloader import FixturesLoader
 from st2tests import DbTestCase
 
-
-FIXTURES_PACK = "traces"
 
 TEST_MODELS = OrderedDict(
     (
@@ -254,9 +253,7 @@ class TestTraceService(DbTestCase):
     def test_get_trace_db_by_live_action_from_execution(self):
         traceable_liveaction = copy.copy(self.traceable_liveaction)
         # fixtures id value in liveaction is not persisted in DB.
-        traceable_liveaction.id = bson.ObjectId(
-            self.traceable_execution.liveaction["id"]
-        )
+        traceable_liveaction.id = bson.ObjectId(self.traceable_execution.liveaction_id)
         created, trace_db = trace_service.get_trace_db_by_live_action(
             traceable_liveaction
         )

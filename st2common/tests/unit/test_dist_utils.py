@@ -13,12 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# NB: Pantsbuild ignores this file and any dist_utils.py files.
+# TODO: delete this file when deleting all dist_utils.py files.
+
 import os
 import sys
 
-import six
 import mock
-import unittest2
+import unittest
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS_PATH = os.path.join(BASE_DIR, "../../../scripts/")
@@ -26,8 +28,6 @@ SCRIPTS_PATH = os.path.join(BASE_DIR, "../../../scripts/")
 # Add scripts/ which contain main dist_utils.py to PYTHONPATH
 sys.path.insert(0, SCRIPTS_PATH)
 
-from dist_utils import check_pip_is_installed
-from dist_utils import check_pip_version
 from dist_utils import fetch_requirements
 from dist_utils import apply_vagrant_workaround
 from dist_utils import get_version_string
@@ -41,7 +41,7 @@ REQUIREMENTS_PATH_2 = os.path.join(BASE_DIR, "../../../requirements.txt")
 VERSION_FILE_PATH = os.path.join(BASE_DIR, "../fixtures/version_file.py")
 
 
-class DistUtilsTestCase(unittest2.TestCase):
+class DistUtilsTestCase(unittest.TestCase):
     def setUp(self):
         super(DistUtilsTestCase, self).setUp()
 
@@ -50,39 +50,6 @@ class DistUtilsTestCase(unittest2.TestCase):
 
     def tearDown(self):
         super(DistUtilsTestCase, self).tearDown()
-
-    def test_check_pip_is_installed_success(self):
-        self.assertTrue(check_pip_is_installed())
-
-    @mock.patch("sys.exit")
-    def test_check_pip_is_installed_failure(self, mock_sys_exit):
-        if six.PY3:
-            module_name = "builtins.__import__"
-        else:
-            module_name = "__builtin__.__import__"
-
-        with mock.patch(module_name) as mock_import:
-            mock_import.side_effect = ImportError("not found")
-
-            self.assertEqual(mock_sys_exit.call_count, 0)
-            check_pip_is_installed()
-            self.assertEqual(mock_sys_exit.call_count, 1)
-            self.assertEqual(mock_sys_exit.call_args_list[0][0], (1,))
-
-    def test_check_pip_version_success(self):
-        self.assertTrue(check_pip_version())
-
-    @mock.patch("sys.exit")
-    def test_check_pip_version_failure(self, mock_sys_exit):
-
-        mock_pip = mock.Mock()
-        mock_pip.__version__ = "0.0.0"
-        sys.modules["pip"] = mock_pip
-
-        self.assertEqual(mock_sys_exit.call_count, 0)
-        check_pip_version()
-        self.assertEqual(mock_sys_exit.call_count, 1)
-        self.assertEqual(mock_sys_exit.call_args_list[0][0], (1,))
 
     def test_get_version_string(self):
         version = get_version_string(VERSION_FILE_PATH)
@@ -108,10 +75,8 @@ class DistUtilsTestCase(unittest2.TestCase):
             "argcomplete",
             "bcrypt==3.1.6",
             "flex==6.14.0",
-            "logshipper",
             "orquesta",
             "st2-auth-backend-flat-file",
-            "logshipper-editable",
             "python_runner",
             "SomePackageHq",
             "SomePackageSvn",
@@ -123,10 +88,8 @@ class DistUtilsTestCase(unittest2.TestCase):
             "zake==0.2.2",
         ]
         expected_links = [
-            "git+https://github.com/Kami/logshipper.git@stackstorm_patched#egg=logshipper",
             "git+https://github.com/StackStorm/orquesta.git@224c1a589a6007eb0598a62ee99d674e7836d369#egg=orquesta",  # NOQA
             "git+https://github.com/StackStorm/st2-auth-backend-flat-file.git@master#egg=st2-auth-backend-flat-file",  # NOQA
-            "git+https://github.com/Kami/logshipper.git@stackstorm_patched#egg=logshipper-editable",
             "git+https://github.com/StackStorm/st2.git#egg=python_runner&subdirectory=contrib/runners/python_runner",  # NOQA
             "hg+https://hg.repo/some_pkg.git#egg=SomePackageHq",
             "svn+svn://svn.repo/some_pkg/trunk/@ma-branch#egg=SomePackageSvn",

@@ -17,14 +17,12 @@ from __future__ import absolute_import, print_function
 
 import datetime
 import mock
-import eventlet
 
-from st2tests import config as test_config
-
-test_config.parse_args()
+from st2common.util import concurrency
 
 import st2common
 from st2tests import ExecutionDbTestCase
+from st2tests.fixtures.generic.fixture import PACK_NAME as PACK
 from st2tests.fixturesloader import FixturesLoader
 from st2tests.mocks.liveaction import MockLiveActionPublisherSchedulingQueueOnly
 
@@ -53,7 +51,6 @@ LIVE_ACTION = {
     "status": "requested",
 }
 
-PACK = "generic"
 TEST_FIXTURES = {
     "actions": ["action1.yaml", "action2.yaml"],
     "policies": ["policy_3.yaml", "policy_7.yaml"],
@@ -151,7 +148,7 @@ class ActionExecutionSchedulingQueueItemDBTest(ExecutionDbTestCase):
             )
 
         # Wait maximum delay seconds so the query works as expected
-        eventlet.sleep(1.0)
+        concurrency.sleep(1.0)
 
         for index in expected_order:
             test_case = test_cases[index]

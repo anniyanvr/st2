@@ -14,8 +14,9 @@
 # limitations under the License.
 
 from __future__ import absolute_import
-import eventlet
 import mock
+
+from st2common.util import concurrency
 
 from st2common.bootstrap import actionsregistrar
 from st2common.bootstrap import runnersregistrar
@@ -35,6 +36,12 @@ from action_chain_runner import action_chain_runner as acr
 from st2common.transport.liveaction import LiveActionPublisher
 from st2common.transport.publishers import CUDPublisher
 
+from st2tests.fixtures.generic.fixture import PACK_NAME as FIXTURES_PACK
+from st2tests.fixtures.packs.action_chain_tests.fixture import (
+    PACK_NAME as TEST_PACK,
+    PACK_PATH as TEST_PACK_PATH,
+)
+from st2tests.fixtures.packs.core.fixture import PACK_PATH as CORE_PACK_PATH
 from st2tests.mocks.liveaction import MockLiveActionPublisherNonBlocking
 
 
@@ -44,8 +51,6 @@ class DummyActionExecution(object):
         self.status = status
         self.result = result
 
-
-FIXTURES_PACK = "generic"
 
 TEST_MODELS = {"actions": ["a1.yaml", "a2.yaml"], "runners": ["testrunner1.yaml"]}
 
@@ -60,10 +65,7 @@ CHAIN_1_PATH = fixturesloader.FixturesLoader().get_fixture_file_path_abs(
     FIXTURES_PACK, "actionchains", "chain_with_notifications.yaml"
 )
 
-TEST_PACK = "action_chain_tests"
-TEST_PACK_PATH = fixturesloader.get_fixtures_packs_base_path() + "/" + TEST_PACK
-
-PACKS = [TEST_PACK_PATH, fixturesloader.get_fixtures_packs_base_path() + "/core"]
+PACKS = [TEST_PACK_PATH, CORE_PACK_PATH]
 
 MOCK_NOTIFY = {
     "on-complete": {
@@ -150,7 +152,7 @@ class TestActionChainNotifications(ExecutionDbTestCase):
 
         # Assert task1 notify is skipped
         task1_exec = ActionExecution.get_by_id(execution.children[0])
-        task1_live = LiveAction.get_by_id(task1_exec.liveaction["id"])
+        task1_live = LiveAction.get_by_id(task1_exec.liveaction_id)
         task1_live = self._wait_on_status(
             task1_live, action_constants.LIVEACTION_STATUS_SUCCEEDED
         )
@@ -161,7 +163,7 @@ class TestActionChainNotifications(ExecutionDbTestCase):
 
         # Assert task2 notify is not skipped
         task2_exec = ActionExecution.get_by_id(execution.children[1])
-        task2_live = LiveAction.get_by_id(task2_exec.liveaction["id"])
+        task2_live = LiveAction.get_by_id(task2_exec.liveaction_id)
         notify = notify_api_models.NotificationsHelper.from_model(
             notify_model=task2_live.notify
         )
@@ -185,7 +187,7 @@ class TestActionChainNotifications(ExecutionDbTestCase):
 
         # Assert task1 notify is set.
         task1_exec = ActionExecution.get_by_id(execution.children[0])
-        task1_live = LiveAction.get_by_id(task1_exec.liveaction["id"])
+        task1_live = LiveAction.get_by_id(task1_exec.liveaction_id)
         task1_live = self._wait_on_status(
             task1_live, action_constants.LIVEACTION_STATUS_SUCCEEDED
         )
@@ -199,7 +201,7 @@ class TestActionChainNotifications(ExecutionDbTestCase):
 
         # Assert task2 notify is not skipped by default.
         task2_exec = ActionExecution.get_by_id(execution.children[1])
-        task2_live = LiveAction.get_by_id(task2_exec.liveaction["id"])
+        task2_live = LiveAction.get_by_id(task2_exec.liveaction_id)
         self.assertIsNone(task2_live.notify)
         MockLiveActionPublisherNonBlocking.wait_all()
 
@@ -220,7 +222,7 @@ class TestActionChainNotifications(ExecutionDbTestCase):
                     % (expected_children, found_children)
                 )
 
-            eventlet.sleep(interval)
+            concurrency.sleep(interval)
 
         found_children = len(getattr(execution, "children", []))
 

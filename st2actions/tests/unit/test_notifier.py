@@ -19,15 +19,13 @@ import datetime
 import bson
 import mock
 
-import st2tests.config as tests_config
-
-tests_config.parse_args()
+# This import must be early for import-time side-effects.
+from st2tests.base import CleanDbTestCase
 
 from st2actions.notifier.notifier import Notifier
 from st2common.constants.action import LIVEACTION_COMPLETED_STATES
 from st2common.constants.action import LIVEACTION_STATUSES
 from st2common.constants.triggers import INTERNAL_TRIGGER_TYPES
-from st2common.models.api.action import LiveActionAPI
 from st2common.models.db.action import ActionDB
 from st2common.models.db.execution import ActionExecutionDB
 from st2common.models.db.liveaction import LiveActionDB
@@ -40,7 +38,6 @@ from st2common.persistence.policy import Policy
 from st2common.models.system.common import ResourceReference
 from st2common.util import date as date_utils
 from st2common.util import isotime
-from st2tests.base import CleanDbTestCase
 
 ACTION_TRIGGER_TYPE = INTERNAL_TRIGGER_TYPES["action"][0]
 NOTIFY_TRIGGER_TYPE = INTERNAL_TRIGGER_TYPES["action"][1]
@@ -135,7 +132,7 @@ class NotifierTestCase(CleanDbTestCase):
         LiveAction.add_or_update(liveaction_db)
 
         execution = MOCK_EXECUTION
-        execution.liveaction = vars(LiveActionAPI.from_model(liveaction_db))
+        execution.liveaction_id = str(liveaction_db.id)
         execution.status = liveaction_db.status
 
         dispatcher = NotifierTestCase.MockDispatcher(self)
@@ -185,7 +182,7 @@ class NotifierTestCase(CleanDbTestCase):
         LiveAction.add_or_update(liveaction_db)
 
         execution = MOCK_EXECUTION
-        execution.liveaction = vars(LiveActionAPI.from_model(liveaction_db))
+        execution.liveaction_id = str(liveaction_db.id)
         execution.status = liveaction_db.status
 
         dispatcher = NotifierTestCase.MockDispatcher(self)
@@ -238,7 +235,7 @@ class NotifierTestCase(CleanDbTestCase):
         LiveAction.add_or_update(liveaction_db)
 
         execution = MOCK_EXECUTION
-        execution.liveaction = vars(LiveActionAPI.from_model(liveaction_db))
+        execution.liveaction_id = str(liveaction_db.id)
         execution.status = liveaction_db.status
 
         notifier = Notifier(connection=None, queues=[])
@@ -270,7 +267,7 @@ class NotifierTestCase(CleanDbTestCase):
             liveaction_db = LiveActionDB(action="core.local")
             liveaction_db.status = status
             execution = MOCK_EXECUTION
-            execution.liveaction = vars(LiveActionAPI.from_model(liveaction_db))
+            execution.liveaction_id = str(liveaction_db.id)
             execution.status = liveaction_db.status
 
             notifier = Notifier(connection=None, queues=[])
@@ -307,7 +304,7 @@ class NotifierTestCase(CleanDbTestCase):
             liveaction_db = LiveActionDB(action="core.local")
             liveaction_db.status = status
             execution = MOCK_EXECUTION
-            execution.liveaction = vars(LiveActionAPI.from_model(liveaction_db))
+            execution.liveaction_id = str(liveaction_db.id)
             execution.status = liveaction_db.status
 
             notifier = Notifier(connection=None, queues=[])
@@ -354,7 +351,7 @@ class NotifierTestCase(CleanDbTestCase):
             liveaction_db = LiveActionDB(id=bson.ObjectId(), action="core.local")
             liveaction_db.status = status
             execution = MOCK_EXECUTION
-            execution.liveaction = vars(LiveActionAPI.from_model(liveaction_db))
+            execution.liveaction_id = str(liveaction_db.id)
             execution.status = liveaction_db.status
 
             mock_LiveAction.get_by_id.return_value = liveaction_db
@@ -404,7 +401,7 @@ class NotifierTestCase(CleanDbTestCase):
             liveaction_db = LiveActionDB(id=bson.ObjectId(), action="core.local")
             liveaction_db.status = status
             execution = MOCK_EXECUTION
-            execution.liveaction = vars(LiveActionAPI.from_model(liveaction_db))
+            execution.liveaction_id = str(liveaction_db.id)
             execution.status = liveaction_db.status
 
             mock_LiveAction.get_by_id.return_value = liveaction_db

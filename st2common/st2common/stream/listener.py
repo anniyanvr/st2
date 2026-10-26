@@ -16,15 +16,16 @@
 from __future__ import absolute_import
 import fnmatch
 
-import eventlet
+from st2common.util import concurrency
 
 from kombu.mixins import ConsumerMixin
 from oslo_config import cfg
 
-from st2common.models.api.action import LiveActionAPI
+from st2common.models.api.action import LiveActionAPI, ActionAliasAPI
 from st2common.models.api.execution import ActionExecutionAPI
 from st2common.models.api.execution import ActionExecutionOutputAPI
 from st2common.transport import utils as transport_utils
+from st2common.transport.queues import STREAM_ACTIONALIAS_QUEUE
 from st2common.transport.queues import STREAM_ANNOUNCEMENT_WORK_QUEUE
 from st2common.transport.queues import STREAM_EXECUTION_ALL_WORK_QUEUE
 from st2common.transport.queues import STREAM_EXECUTION_UPDATE_WORK_QUEUE
@@ -57,9 +58,15 @@ class BaseListener(ConsumerMixin):
         raise NotImplementedError("get_consumers() is not implemented")
 
     def processor(self, model=None):
+        exchange_prefix = cfg.CONF.messaging.prefix
+
         def process(body, message):
             meta = message.delivery_info
-            event_name = "%s__%s" % (meta.get("exchange"), meta.get("routing_key"))
+            event_prefix = meta.get("exchange", "")
+            if exchange_prefix != "st2" and event_prefix.startswith(exchange_prefix):
+                # use well-known event names over configurable exchange names
+                event_prefix = event_prefix.replace(f"{exchange_prefix}.", "st2.", 1)
+            event_name = f"{event_prefix}__{meta.get('routing_key')}"
 
             try:
                 if model:
@@ -87,7 +94,7 @@ class BaseListener(ConsumerMixin):
         end_statuses=None,
         end_execution_id=None,
     ):
-        queue = eventlet.Queue()
+        queue = concurrency.Queue()
         queue.put("")
         self.queues.append(queue)
         try:
@@ -137,7 +144,7 @@ class BaseListener(ConsumerMixin):
                         continue
 
                     yield message
-                except eventlet.queue.Empty:
+                except concurrency.get_queue_empty_exception():
                     yield
         finally:
             self.queues.remove(queue)
@@ -202,6 +209,11 @@ class StreamListener(BaseListener):
     def get_consumers(self, consumer, channel):
         return [
             consumer(
+                queues=[STREAM_ACTIONALIAS_QUEUE],
+                accept=["pickle"],
+                callbacks=[self.processor(ActionAliasAPI)],
+            ),
+            consumer(
                 queues=[STREAM_ANNOUNCEMENT_WORK_QUEUE],
                 accept=["pickle"],
                 callbacks=[self.processor()],
@@ -261,13 +273,13 @@ def get_listener(name):
         if not _stream_listener:
             with transport_utils.get_connection() as conn:
                 _stream_listener = StreamListener(conn)
-                eventlet.spawn_n(listen, _stream_listener)
+                concurrency.spawn(listen, _stream_listener)
         return _stream_listener
     elif name == "execution_output":
         if not _execution_output_listener:
             with transport_utils.get_connection() as conn:
                 _execution_output_listener = ExecutionOutputListener(conn)
-                eventlet.spawn_n(listen, _execution_output_listener)
+                concurrency.spawn(listen, _execution_output_listener)
         return _execution_output_listener
     else:
         raise ValueError("Invalid listener name: %s" % (name))

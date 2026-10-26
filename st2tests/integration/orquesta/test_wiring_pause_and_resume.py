@@ -16,7 +16,7 @@
 from __future__ import absolute_import
 
 import os
-import unittest
+import pytest
 
 from integration.orquesta import base
 
@@ -25,10 +25,10 @@ from st2common.constants import action as ac_const
 
 # Those tests hang and time out very often so they are disabled for the timing being until we find
 # the root cause for the race or run that test separately in isolation in retry loop
-@unittest.skipIf(
+@pytest.mark.skipif(
     os.environ.get("ST2_CI_RUN_ORQUESTA_PAUSE_RESUME_TESTS", "false").lower()
     not in ["1", "true"],
-    "Skipping race prone tests",
+    reason="Skipping race prone tests",
 )
 class PauseResumeWiringTest(
     base.TestWorkflowExecution, base.WorkflowControlTestCaseMixin
@@ -65,8 +65,10 @@ class PauseResumeWiringTest(
         # but task1 will still be running to allow for graceful exit.
         self.st2client.executions.pause(ex.id)
 
-        # Expecting the ex to be canceling, waiting for task1 to be completed.
-        ex = self._wait_for_state(ex, ac_const.LIVEACTION_STATUS_PAUSING)
+        # Expecting the ex to be pausing or paused, waiting for task1 to be completed.
+        ex = self._wait_for_state(
+            ex, [ac_const.LIVEACTION_STATUS_PAUSING, ac_const.LIVEACTION_STATUS_PAUSED]
+        )
 
         # Delete the temporary file.
         os.remove(path)
@@ -96,9 +98,14 @@ class PauseResumeWiringTest(
         # but task1 will still be running to allow for graceful exit.
         ex = self.st2client.executions.pause(ex.id)
 
-        # Expecting the ex to be pausing, waiting for task1 to be completed.
-        ex = self._wait_for_state(ex, ac_const.LIVEACTION_STATUS_PAUSING)
-        tk_ac_ex = self._wait_for_state(tk_exs[0], ac_const.LIVEACTION_STATUS_PAUSING)
+        # Expecting the ex to be pausing or paused, waiting for task1 to be completed.
+        ex = self._wait_for_state(
+            ex, [ac_const.LIVEACTION_STATUS_PAUSING, ac_const.LIVEACTION_STATUS_PAUSED]
+        )
+        tk_ac_ex = self._wait_for_state(
+            tk_exs[0],
+            [ac_const.LIVEACTION_STATUS_PAUSING, ac_const.LIVEACTION_STATUS_PAUSED],
+        )
 
         # Delete the temporary file.
         os.remove(path)
@@ -133,10 +140,18 @@ class PauseResumeWiringTest(
         # but task1 will still be running to allow for graceful exit.
         ex = self.st2client.executions.pause(ex.id)
 
-        # Expecting the ex to be pausing, waiting for task1 to be completed.
-        ex = self._wait_for_state(ex, ac_const.LIVEACTION_STATUS_PAUSING)
-        tk1_ac_ex = self._wait_for_state(tk1_exs[0], ac_const.LIVEACTION_STATUS_PAUSING)
-        tk2_ac_ex = self._wait_for_state(tk2_exs[0], ac_const.LIVEACTION_STATUS_PAUSING)
+        # Expecting the ex to be pausing or paused, waiting for task1 to be completed.
+        ex = self._wait_for_state(
+            ex, [ac_const.LIVEACTION_STATUS_PAUSING, ac_const.LIVEACTION_STATUS_PAUSED]
+        )
+        tk1_ac_ex = self._wait_for_state(
+            tk1_exs[0],
+            [ac_const.LIVEACTION_STATUS_PAUSING, ac_const.LIVEACTION_STATUS_PAUSED],
+        )
+        tk2_ac_ex = self._wait_for_state(
+            tk2_exs[0],
+            [ac_const.LIVEACTION_STATUS_PAUSING, ac_const.LIVEACTION_STATUS_PAUSED],
+        )
 
         # Delete the temporary file for one of the subworkflow.
         os.remove(path1)
@@ -144,8 +159,13 @@ class PauseResumeWiringTest(
 
         # Check the workflow and subworkflow status.
         tk1_ac_ex = self._wait_for_state(tk1_ac_ex, ac_const.LIVEACTION_STATUS_PAUSED)
-        tk1_ac_ex = self._wait_for_state(tk2_ac_ex, ac_const.LIVEACTION_STATUS_PAUSING)
-        ex = self._wait_for_state(ex, ac_const.LIVEACTION_STATUS_PAUSING)
+        tk2_ac_ex = self._wait_for_state(
+            tk2_ac_ex,
+            [ac_const.LIVEACTION_STATUS_PAUSING, ac_const.LIVEACTION_STATUS_PAUSED],
+        )
+        ex = self._wait_for_state(
+            ex, [ac_const.LIVEACTION_STATUS_PAUSING, ac_const.LIVEACTION_STATUS_PAUSED]
+        )
 
         # Delete the temporary file for the other subworkflow.
         os.remove(path2)
@@ -153,7 +173,7 @@ class PauseResumeWiringTest(
 
         # Check the workflow and subworkflow status.
         tk1_ac_ex = self._wait_for_state(tk1_ac_ex, ac_const.LIVEACTION_STATUS_PAUSED)
-        tk1_ac_ex = self._wait_for_state(tk2_ac_ex, ac_const.LIVEACTION_STATUS_PAUSED)
+        tk2_ac_ex = self._wait_for_state(tk2_ac_ex, ac_const.LIVEACTION_STATUS_PAUSED)
         ex = self._wait_for_state(ex, ac_const.LIVEACTION_STATUS_PAUSED)
 
         # Resume the parent ex.
@@ -183,9 +203,12 @@ class PauseResumeWiringTest(
         # paused but workflow will still be running.
         tk_ac_ex = self.st2client.executions.pause(tk_exs[0].id)
 
-        # Expecting the workflow is still running and task1 is pausing.
+        # Expecting the workflow is still running and task1 is pausing or paused.
         ex = self._wait_for_state(ex, ac_const.LIVEACTION_STATUS_RUNNING)
-        tk_ac_ex = self._wait_for_state(tk_ac_ex, ac_const.LIVEACTION_STATUS_PAUSING)
+        tk_ac_ex = self._wait_for_state(
+            tk_ac_ex,
+            [ac_const.LIVEACTION_STATUS_PAUSING, ac_const.LIVEACTION_STATUS_PAUSED],
+        )
 
         # Delete the temporary file.
         os.remove(path)
@@ -222,9 +245,12 @@ class PauseResumeWiringTest(
         # paused but workflow and the other subworkflow will still be running.
         tk1_ac_ex = self.st2client.executions.pause(tk1_exs[0].id)
 
-        # Expecting the workflow is still running and task1 is pausing.
+        # Expecting the workflow is still running and task1 is pausing or paused.
         ex = self._wait_for_state(ex, ac_const.LIVEACTION_STATUS_RUNNING)
-        tk1_ac_ex = self._wait_for_state(tk1_ac_ex, ac_const.LIVEACTION_STATUS_PAUSING)
+        tk1_ac_ex = self._wait_for_state(
+            tk1_ac_ex,
+            [ac_const.LIVEACTION_STATUS_PAUSING, ac_const.LIVEACTION_STATUS_PAUSED],
+        )
         tk2_ac_ex = self._wait_for_state(tk2_exs[0], ac_const.LIVEACTION_STATUS_RUNNING)
 
         # Delete the temporary file for the subworkflow.
@@ -282,7 +308,10 @@ class PauseResumeWiringTest(
 
         # Expecting the workflow is still running and task1 is pausing.
         ex = self._wait_for_state(ex, ac_const.LIVEACTION_STATUS_RUNNING)
-        tk1_ac_ex = self._wait_for_state(tk1_ac_ex, ac_const.LIVEACTION_STATUS_PAUSING)
+        tk1_ac_ex = self._wait_for_state(
+            tk1_ac_ex,
+            [ac_const.LIVEACTION_STATUS_PAUSING, ac_const.LIVEACTION_STATUS_PAUSED],
+        )
         tk2_ac_ex = self._wait_for_state(tk2_exs[0], ac_const.LIVEACTION_STATUS_RUNNING)
 
         # Delete the temporary file for the subworkflow.
@@ -336,19 +365,28 @@ class PauseResumeWiringTest(
         # paused but workflow and the other subworkflow will still be running.
         tk1_ac_ex = self.st2client.executions.pause(tk1_exs[0].id)
 
-        # Expecting the workflow is still running and task1 is pausing.
+        # Expecting the workflow is still running and task1 is pausing or paused.
         ex = self._wait_for_state(ex, ac_const.LIVEACTION_STATUS_RUNNING)
-        tk1_ac_ex = self._wait_for_state(tk1_ac_ex, ac_const.LIVEACTION_STATUS_PAUSING)
+        tk1_ac_ex = self._wait_for_state(
+            tk1_ac_ex,
+            [ac_const.LIVEACTION_STATUS_PAUSING, ac_const.LIVEACTION_STATUS_PAUSED],
+        )
         tk2_ac_ex = self._wait_for_state(tk2_exs[0], ac_const.LIVEACTION_STATUS_RUNNING)
 
         # Pause the other subworkflow before the temp file is deleted. The main
         # workflow will still running because pause is initiated downstream.
         tk2_ac_ex = self.st2client.executions.pause(tk2_exs[0].id)
 
-        # Expecting workflow and subworkflows are pausing.
+        # Expecting workflow and subworkflows are pausing or paused.
         ex = self._wait_for_state(ex, ac_const.LIVEACTION_STATUS_RUNNING)
-        tk1_ac_ex = self._wait_for_state(tk1_ac_ex, ac_const.LIVEACTION_STATUS_PAUSING)
-        tk2_ac_ex = self._wait_for_state(tk2_ac_ex, ac_const.LIVEACTION_STATUS_PAUSING)
+        tk1_ac_ex = self._wait_for_state(
+            tk1_ac_ex,
+            [ac_const.LIVEACTION_STATUS_PAUSING, ac_const.LIVEACTION_STATUS_PAUSED],
+        )
+        tk2_ac_ex = self._wait_for_state(
+            tk2_ac_ex,
+            [ac_const.LIVEACTION_STATUS_PAUSING, ac_const.LIVEACTION_STATUS_PAUSED],
+        )
 
         # Delete the temporary files for the subworkflows.
         os.remove(path1)
@@ -402,19 +440,28 @@ class PauseResumeWiringTest(
         # paused but workflow and the other subworkflow will still be running.
         tk1_ac_ex = self.st2client.executions.pause(tk1_exs[0].id)
 
-        # Expecting the workflow is still running and task1 is pausing.
+        # Expecting the workflow is still running and task1 is pausing or paused.
         ex = self._wait_for_state(ex, ac_const.LIVEACTION_STATUS_RUNNING)
-        tk1_ac_ex = self._wait_for_state(tk1_ac_ex, ac_const.LIVEACTION_STATUS_PAUSING)
+        tk1_ac_ex = self._wait_for_state(
+            tk1_ac_ex,
+            [ac_const.LIVEACTION_STATUS_PAUSING, ac_const.LIVEACTION_STATUS_PAUSED],
+        )
         tk2_ac_ex = self._wait_for_state(tk2_exs[0], ac_const.LIVEACTION_STATUS_RUNNING)
 
         # Pause the other subworkflow before the temp file is deleted. The main
         # workflow will still running because pause is initiated downstream.
         tk2_ac_ex = self.st2client.executions.pause(tk2_exs[0].id)
 
-        # Expecting workflow and subworkflows are pausing.
+        # Expecting workflow and subworkflows are pausing or paused.
         ex = self._wait_for_state(ex, ac_const.LIVEACTION_STATUS_RUNNING)
-        tk1_ac_ex = self._wait_for_state(tk1_ac_ex, ac_const.LIVEACTION_STATUS_PAUSING)
-        tk2_ac_ex = self._wait_for_state(tk2_ac_ex, ac_const.LIVEACTION_STATUS_PAUSING)
+        tk1_ac_ex = self._wait_for_state(
+            tk1_ac_ex,
+            [ac_const.LIVEACTION_STATUS_PAUSING, ac_const.LIVEACTION_STATUS_PAUSED],
+        )
+        tk2_ac_ex = self._wait_for_state(
+            tk2_ac_ex,
+            [ac_const.LIVEACTION_STATUS_PAUSING, ac_const.LIVEACTION_STATUS_PAUSED],
+        )
 
         # Delete the temporary files for the subworkflows.
         os.remove(path1)

@@ -14,6 +14,12 @@
 # limitations under the License.
 
 from __future__ import absolute_import
+
+# pytest: make sure monkey_patching happens before importing mongoengine
+from st2common.util.monkey_patch import monkey_patch
+
+monkey_patch()
+
 import copy
 from datetime import timedelta
 
@@ -29,6 +35,7 @@ from st2common.models.db.execution import ActionExecutionOutputDB
 from st2common.persistence.liveaction import LiveAction
 from st2common.util import date as date_utils
 from st2tests.base import CleanDbTestCase
+from st2tests.fixtures.generic.fixture import PACK_NAME as GENERIC_PACK
 from st2tests.fixturesloader import FixturesLoader
 from six.moves import range
 
@@ -47,7 +54,7 @@ class TestPurgeExecutions(CleanDbTestCase):
         super(TestPurgeExecutions, self).setUp()
         fixtures_loader = FixturesLoader()
         self.models = fixtures_loader.load_models(
-            fixtures_pack="generic", fixtures_dict=TEST_FIXTURES
+            fixtures_pack=GENERIC_PACK, fixtures_dict=TEST_FIXTURES
         )
 
     def test_no_timestamp_doesnt_delete_things(self):
@@ -72,7 +79,7 @@ class TestPurgeExecutions(CleanDbTestCase):
         self.assertEqual(len(stderr_dbs), 3)
 
         expected_msg = "Specify a valid timestamp"
-        self.assertRaisesRegexp(
+        self.assertRaisesRegex(
             ValueError, expected_msg, purge_executions, logger=LOG, timestamp=None
         )
         execs = ActionExecution.get_all()
@@ -187,7 +194,7 @@ class TestPurgeExecutions(CleanDbTestCase):
         exec_model["end_timestamp"] = end_ts
         exec_model["status"] = action_constants.LIVEACTION_STATUS_SUCCEEDED
         exec_model["id"] = bson.ObjectId()
-        exec_model["liveaction"]["id"] = str(liveaction.id)
+        exec_model["liveaction_id"] = str(liveaction.id)
         ActionExecution.add_or_update(exec_model)
 
         liveactions = LiveAction.get_all()
